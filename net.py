@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
 import itertools
+from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
 
 from mininet.cli import CLI
 from mininet.link import TCLink
-from mininet.log import info, setLogLevel
+from mininet.log import info, output, setLogLevel
 from mininet.net import Mininet
 from mininet.node import Node
 from mininet.topo import Topo
@@ -94,10 +95,17 @@ def run(benchmark: bool = False):
     info(net["r0"].cmd("ip route"))
 
     if benchmark:
-        pass  # TODO: do pingall, iperf, etc.
         # Q: Shall this script perform a comprehensive benchmark with different CC & AQM methods on its own?
         #    Or maybe it can rely on external tools for parameterizing this script, and thus it should only be
         #    concerned about conducting measurement runs for a single case (i.e., with fixed CC & AQM methods).
+
+        info("*** Starting benchmark ***\n")
+        h1, h2 = net["h1"], net["h2"]
+
+        h2.cmd("iperf --trip-times --server &")
+        output(h1.cmd(f"iperf --trip-times --client {h2.IP()}"))
+
+        info("*** Stopping benchmark ***\n")
     else:
         CLI(net)
 
@@ -105,5 +113,17 @@ def run(benchmark: bool = False):
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser(
+        description="A Mininet-based testbench for measuring L4S's performance."
+    )
+    parser.add_argument(
+        "--benchmark",
+        action=BooleanOptionalAction,
+        default=False,
+        help="Perform automatic benchmarks on the topology instead of entering to interactive CLI mode.",
+    )
+
+    args = parser.parse_args()
+
     setLogLevel("info")
-    run()
+    run(benchmark=args.benchmark)
