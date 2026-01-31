@@ -18,20 +18,22 @@ class PragueHost(Node):
 
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
-            self.cmd(
-                f"tc qdisc replace dev {intf} root handle 1: fq limit 20480 flow_limit 10240"
-            )
         self.cmd("sysctl -w net.ipv4.tcp_ecn=3")
         self.cmd("sysctl -w net.ipv4.tcp_congestion_control=prague")
 
 
 class DualPI2Router(Node):
-    def config(self, **params):
+    def config(self, delay: int = 50, bw: int = 5, **params):
         super().config(**params)
 
+        info(f"\n*** Setting up router interfaces")
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
-            self.cmd(f"tc qdisc replace dev {intf} root dualpi2")
+            self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
+            self.cmd(f"tc class add dev {intf} parent 1: classid 1:10 htb rate {bw}mbit ceil {bw}mbit")
+            self.cmd(f"tc qdisc add dev {intf} parent 1:10 handle 20: netem delay {delay}ms")
+            self.cmd(f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2")  # limit 10 target 1ms typical_rtt 1ms max_rtt 200ms")
+            info(f"\n{intf}: bw={bw} Mbps delay={delay}ms")
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
 
@@ -77,7 +79,7 @@ class L4STopo(Topo):
                 defaultRoute=f"via {r0_i_ip.ip}",
             )
 
-            self.addLink(hi, si)
+            self.addLink(hi, si)#, cls=TCLink, delay="50ms", bw=10)
 
 
 def run(benchmark: bool = False):
@@ -90,9 +92,6 @@ def run(benchmark: bool = False):
     topo = L4STopo()
     net = Mininet(topo=topo, waitConnected=True)
     net.start()
-
-    info("*** Routing Table on Router (r0) ***\n")
-    info(net["r0"].cmd("ip route"))
 
     if benchmark:
         # Q: Shall this script perform a comprehensive benchmark with different CC & AQM methods on its own?
