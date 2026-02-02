@@ -3,6 +3,7 @@
 import itertools
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
+from tempfile import NamedTemporaryFile, TemporaryFile
 
 from mininet.cli import CLI
 from mininet.link import TCLink
@@ -23,17 +24,25 @@ class PragueHost(Node):
 
 
 class DualPI2Router(Node):
-    def config(self, delay: int = 50, bw: int = 5, **params):
-        super().config(**params)
+    def config(self, delay: int = 50, bw: int = 5, **kwargs):
+        super().config(**kwargs)
 
-        info(f"\n*** Setting up router interfaces")
-        for intf in self.intfList():
+        info("\n*** Setting up router interfaces")
+        for i, intf in enumerate(self.intfList(), start=1):
+            delay_set = kwargs.get(f"delay{i}", delay)
+            bw_set = kwargs.get(f"bw{i}", bw)
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
             self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
-            self.cmd(f"tc class add dev {intf} parent 1: classid 1:10 htb rate {bw}mbit ceil {bw}mbit")
-            self.cmd(f"tc qdisc add dev {intf} parent 1:10 handle 20: netem delay {delay}ms")
-            self.cmd(f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2")  # limit 10 target 1ms typical_rtt 1ms max_rtt 200ms")
-            info(f"\n{intf}: bw={bw} Mbps delay={delay}ms")
+            self.cmd(
+                f"tc class add dev {intf} parent 1: classid 1:10 htb rate {bw_set}mbit ceil {bw_set}mbit"
+            )
+            self.cmd(
+                f"tc qdisc add dev {intf} parent 1:10 handle 20: netem delay {delay_set}ms"
+            )
+            self.cmd(
+                f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2"
+            )  # TODO: find out how to add the following parameters to dualpi2: limit 10 target 1ms typical_rtt 1ms max_rtt 200ms")
+            info(f"\n{intf}: bw={bw_set} Mbps delay={delay_set}ms")
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
 
@@ -79,7 +88,7 @@ class L4STopo(Topo):
                 defaultRoute=f"via {r0_i_ip.ip}",
             )
 
-            self.addLink(hi, si)#, cls=TCLink, delay="50ms", bw=10)
+            self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
 def run(benchmark: bool = False):
@@ -101,8 +110,12 @@ def run(benchmark: bool = False):
         info("*** Starting benchmark ***\n")
         h1, h2 = net["h1"], net["h2"]
 
-        h2.cmd("iperf --trip-times --server &")
-        output(h1.cmd(f"iperf --trip-times --client {h2.IP()}"))
+        tf = NamedTemporaryFile()
+        h2.cmd(f"iperf --trip-times --server --output {tf.name} &")
+        client_output = h1.cmd(f"iperf --trip-times --client {h2.IP()}")
+        server_output = tf.read().decode("utf-8")
+        output(client_output)
+        output(server_output)
 
         info("*** Stopping benchmark ***\n")
     else:
