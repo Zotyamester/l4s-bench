@@ -3,7 +3,7 @@
 import itertools
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
-from tempfile import NamedTemporaryFile, TemporaryFile
+from tempfile import NamedTemporaryFile
 
 from mininet.cli import CLI
 from mininet.link import TCLink
@@ -28,28 +28,40 @@ class DualPI2Router(Node):
         super().config(**kwargs)
 
         info("\n*** Setting up router interfaces")
+
         for i, intf in enumerate(self.intfList(), start=1):
             delay_set = kwargs.get(f"delay{i}", delay)
             bw_set = kwargs.get(f"bw{i}", bw)
-            self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
-            self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
+
             self.cmd(
-                f"tc class add dev {intf} parent 1: classid 1:10 htb rate {bw_set}mbit ceil {bw_set}mbit"
+                f"ethtool -K {intf} tso off gso off gro off lro off"
             )
             self.cmd(
-                f"tc qdisc add dev {intf} parent 1:10 handle 20: netem delay {delay_set}ms"
+                f"tc qdisc replace dev {intf} root handle 1: htb default 10"
+            )
+            self.cmd(
+                f"tc class add dev {intf} parent 1: classid 1:10 htb"
+                f"   rate {bw_set}mbit ceil {bw_set}mbit"
+            )
+            self.cmd(
+                f"tc qdisc add dev {intf} parent 1:10 handle 20: netem"
+                f"   delay {delay_set}ms"
             )
             self.cmd(
                 f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2"
-            )  # TODO: find out how to add the following parameters to dualpi2: limit 10 target 1ms typical_rtt 1ms max_rtt 200ms")
-            info(f"\n{intf}: bw={bw_set} Mbps delay={delay_set}ms")
+                # f"   limit {10000} target {100}ms"
+            )
+
+            info(f"\n{intf}: bw={bw_set}mbit delay={delay_set}ms")
+
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
 
 class L4STopo(Topo):
     """
-    Represents a star topology with a single router (`r0`) connecting several (see `n_net`) switched LAN segments.
-    Each LAN consists of a single switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
+    Represents a star topology with a single router (`r0`) connecting
+    several (see `n_net`) switched LAN segments. Each LAN consists of a single
+    switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
     """
 
     def build(self, n_net: int = 2, _n_host: int = 1):
@@ -60,7 +72,6 @@ class L4STopo(Topo):
             tuple(
                 IPv4Interface(f"{ip}/{neti.prefixlen}") for ip in neti.hosts()
             )  # a given subnet shall be immutable, hence the tuple
-            #    (How on Earth would you add new addresses belonging to the specified range anyway?)
             for neti in itertools.islice(BASE_SUBNET.subnets(16), n_net)
         ]
 
@@ -79,8 +90,8 @@ class L4STopo(Topo):
                 params2={"ip": r0_i_ip.with_prefixlen},
             )
 
-            # TODO: here, we could make use of the `n_host` param, but it would require
-            #       a change in the naming scheme
+            # TODO: here, we could make use of the `n_host` param, but it would
+            #       require a change in the naming scheme
             hi = self.addHost(
                 f"h{i}",
                 cls=PragueHost,
@@ -93,19 +104,22 @@ class L4STopo(Topo):
 
 def run(benchmark: bool = False):
     """
-    Setup the `L4STopology` with the specified parameters and benchmark the performance or show the interactive
-    Mininet console.
+    Setup the `L4STopology` with the specified parameters and benchmark the
+    performance or show the interactive Mininet console.
 
     :param benchmark: Perform benchmarks instead of entering to CLI mode.
     """
+
     topo = L4STopo()
     net = Mininet(topo=topo, waitConnected=True)
     net.start()
 
     if benchmark:
-        # Q: Shall this script perform a comprehensive benchmark with different CC & AQM methods on its own?
-        #    Or maybe it can rely on external tools for parameterizing this script, and thus it should only be
-        #    concerned about conducting measurement runs for a single case (i.e., with fixed CC & AQM methods).
+        # Q: Shall this script perform a comprehensive benchmark with different
+        # CC & AQM methods on its own? Or maybe it can rely on external tools
+        # for parameterizing this script, and thus it should only be concerned
+        # about conducting measurement runs for a single case (i.e., with fixed
+        # CC & AQM methods).
 
         info("*** Starting benchmark ***\n")
         h1, h2 = net["h1"], net["h2"]
@@ -132,7 +146,8 @@ if __name__ == "__main__":
         "--benchmark",
         action=BooleanOptionalAction,
         default=False,
-        help="Perform automatic benchmarks on the topology instead of entering to interactive CLI mode.",
+        help="Perform automatic benchmarks on the topology instead of entering"
+             " to interactive CLI mode.",
     )
 
     args = parser.parse_args()
