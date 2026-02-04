@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import itertools
+from csv import DictReader
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
 from tempfile import NamedTemporaryFile
@@ -121,17 +122,24 @@ def run(benchmark: bool = False):
         # about conducting measurement runs for a single case (i.e., with fixed
         # CC & AQM methods).
 
-        info("*** Starting benchmark ***\n")
+        info("*** Starting benchmark\n")
         h1, h2 = net["h1"], net["h2"]
 
         tf = NamedTemporaryFile()
-        h2.cmd(f"iperf --trip-times --server --output {tf.name} &")
-        client_output = h1.cmd(f"iperf --trip-times --client {h2.IP()}")
+        h2.cmd(f"iperf --trip-times --reportstyle C --output {tf.name} --server &")
+        client_output = h1.cmd(f"iperf --trip-times --reportstyle C --client {h2.IP()}")
         server_output = tf.read().decode("utf-8")
-        output(client_output)
-        output(server_output)
 
-        info("*** Stopping benchmark ***\n")
+        FIELDS = ("timestamp", "src_ip", "src_port", "dst_ip", "dst_port", "id", "interval", "transferred_bytes", "bits_per_second")
+        client_table = DictReader([client_output], fieldnames=FIELDS)
+        server_table = DictReader([server_output], fieldnames=FIELDS)
+
+        info("*** Client stats:\n")
+        output("\n".join((str(row) for row in client_table)) + "\n")
+        info("*** Server stats:\n")
+        output("\n".join((str(row) for row in server_table)) + "\n")
+
+        info("*** Stopping benchmark\n")
     else:
         CLI(net)
 
