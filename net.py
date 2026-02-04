@@ -112,7 +112,7 @@ def run(benchmark: bool = False):
     """
 
     topo = L4STopo()
-    net = Mininet(topo=topo, waitConnected=True)
+    net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
 
     if benchmark:
@@ -123,7 +123,7 @@ def run(benchmark: bool = False):
         # CC & AQM methods).
 
         info("*** Starting benchmark\n")
-        h1, h2 = net["h1"], net["h2"]
+        h1, h2, r0 = net["h1"], net["h2"], net["r0"]
 
         tf = NamedTemporaryFile()
         h2.cmd(f"iperf --trip-times --reportstyle C --output {tf.name} --server &")
@@ -138,6 +138,9 @@ def run(benchmark: bool = False):
         output("\n".join((str(row) for row in client_table)) + "\n")
         info("*** Server stats:\n")
         output("\n".join((str(row) for row in server_table)) + "\n")
+        info("*** Router stats:\n")
+        output(r0.cmd("tc -s qdisc show dev r0-eth1"))
+        output(r0.cmd("tc -s qdisc show dev r0-eth2"))
 
         info("*** Stopping benchmark\n")
     else:
