@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import itertools
+import json
+import os
 from csv import DictReader
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
@@ -8,7 +10,7 @@ from tempfile import NamedTemporaryFile
 
 from mininet.cli import CLI
 from mininet.link import TCLink
-from mininet.log import info, output, setLogLevel
+from mininet.log import info, output, error, setLogLevel
 from mininet.net import Mininet
 from mininet.node import Node
 from mininet.topo import Topo
@@ -65,7 +67,13 @@ class L4STopo(Topo):
     switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
     """
 
-    def build(self, n_net: int = 2, _n_host: int = 1):
+    def __init__(self, n_net: int = 2, n_host: int = 1, router_params: dict | None = None, **kwargs):
+        self.n_net = n_net
+        self.n_host = n_host
+        self.router_params = router_params or {}
+        super().__init__(**kwargs)
+
+    def build(self):
         BASE_SUBNET = IPv4Network("10.0.0.0/8")
 
         # make a list of `n_net` /24 subnets in the `BASE_SUBNET`
@@ -73,11 +81,11 @@ class L4STopo(Topo):
             tuple(
                 IPv4Interface(f"{ip}/{neti.prefixlen}") for ip in neti.hosts()
             )  # a given subnet shall be immutable, hence the tuple
-            for neti in itertools.islice(BASE_SUBNET.subnets(16), n_net)
+            for neti in itertools.islice(BASE_SUBNET.subnets(16), self.n_net)
         ]
 
         r0 = self.addHost(
-            "r0", cls=DualPI2Router, ip=nets[0][0].with_prefixlen
+            "r0", cls=DualPI2Router, ip=nets[0][0].with_prefixlen, **self.router_params
         )  # specify the first subnet's first IP address in the `ip` param
 
         for i, (r0_i_ip, hi_ip, *_) in enumerate(nets, start=1):
@@ -103,7 +111,7 @@ class L4STopo(Topo):
             self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
-def run(benchmark: bool = False):
+def run(benchmark: bool = False, out_dir: str = "/tmp", bw1: int = 10, bw2: int = 10):
     """
     Setup the `L4STopology` with the specified parameters and benchmark the
     performance or show the interactive Mininet console.
@@ -111,7 +119,7 @@ def run(benchmark: bool = False):
     :param benchmark: Perform benchmarks instead of entering to CLI mode.
     """
 
-    topo = L4STopo()
+    topo = L4STopo(router_params=dict(bw1=bw1, bw2=bw2))
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
 
@@ -129,18 +137,54 @@ def run(benchmark: bool = False):
         h2.cmd(f"iperf --trip-times --reportstyle C --output {tf.name} --server &")
         client_output = h1.cmd(f"iperf --trip-times --reportstyle C --client {h2.IP()}")
         server_output = tf.read().decode("utf-8")
+        tf.close()
 
         FIELDS = ("timestamp", "src_ip", "src_port", "dst_ip", "dst_port", "id", "interval", "transferred_bytes", "bits_per_second")
-        client_table = DictReader([client_output], fieldnames=FIELDS)
-        server_table = DictReader([server_output], fieldnames=FIELDS)
+        client_stats = next(DictReader([client_output], fieldnames=FIELDS))
+        server_stats = next(DictReader([server_output], fieldnames=FIELDS))
 
-        info("*** Client stats:\n")
-        output("\n".join((str(row) for row in client_table)) + "\n")
-        info("*** Server stats:\n")
-        output("\n".join((str(row) for row in server_table)) + "\n")
-        info("*** Router stats:\n")
-        output(r0.cmd("tc -s qdisc show dev r0-eth1"))
-        output(r0.cmd("tc -s qdisc show dev r0-eth2"))
+        try:
+            STATS = ("interval", "transferred_bytes", "bits_per_second")
+
+            info("*** Client stats:\n")
+            client_table_filtered = {stat: client_stats[stat] for stat in STATS}
+            output(json.dumps(client_table_filtered, indent=2) + "\n")
+
+            info("*** Server stats:\n")
+            server_table_filtered = {stat: server_stats[stat] for stat in STATS}
+            output(json.dumps(server_table_filtered, indent=2) + "\n")
+        except ...:
+            error("*** Couldn't parse iperf outputs\n")
+
+        try:
+            info("*** Router stats:\n")
+
+            STATS = ("bytes", "packets", "drops", "delay-c", "delay-l", "pkts-in-c", "pkts-in-l", "maxq", "ecn-mark")
+            eth1_dump = json.loads(r0.cmd("tc -j -s qdisc show dev r0-eth1"))
+            eth1_dualpi2_stats = next(filter(lambda qdisc: qdisc["kind"] == "dualpi2", eth1_dump))
+            eth1_dualpi2_stats_filtered = {stat: eth1_dualpi2_stats[stat] for stat in STATS}
+            output(f"{json.dumps(eth1_dualpi2_stats_filtered, indent=2)}\n")
+
+            eth2_dump = json.loads(r0.cmd("tc -j -s qdisc show dev r0-eth2"))
+            eth2_dualpi2_stats = next(filter(lambda qdisc: qdisc["kind"] == "dualpi2", eth2_dump))
+            eth2_dualpi2_stats_filtered = {stat: eth2_dualpi2_stats[stat] for stat in STATS}
+            output(f"{json.dumps(eth2_dualpi2_stats_filtered, indent=2)}\n")
+        except ...:
+            error("*** Couldn't parse tc xstats\n")
+
+        result = {
+            "client": client_stats,
+            "server": server_stats,
+            "router": {
+                "eth1": eth1_dualpi2_stats,
+                "eth2": eth2_dualpi2_stats,
+            },
+        }
+
+        with open(os.path.join(out_dir, "result.json"), "w") as f:
+            json.dump(result, f)
+            info("*** Dumping stats\n")
+            output(f"Stats saved to '{f.name}'\n")
 
         info("*** Stopping benchmark\n")
     else:
@@ -160,8 +204,16 @@ if __name__ == "__main__":
         help="Perform automatic benchmarks on the topology instead of entering"
              " to interactive CLI mode.",
     )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default="/tmp",
+        help="Dir to put results into / get logs from",
+    )
+    parser.add_argument("--bw1", default=10)
+    parser.add_argument("--bw2", default=10)
 
     args = parser.parse_args()
 
     setLogLevel("info")
-    run(benchmark=args.benchmark)
+    run(benchmark=args.benchmark, out_dir=args.out_dir, bw1=args.bw1, bw2=args.bw2)

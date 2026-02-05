@@ -1,0 +1,33 @@
+{
+    "benchmark": [
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario1",
+                    "bw1": 10,
+                    "bw2": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "algo": "prague",
+                    "repeat": [1]
+                },
+                "script": "/vagrant/net.py --out-dir $PWD --benchmark --bw1 $bw1 --bw2 $bw2"
+            }
+        }
+    ],
+    "default": {
+        "scale": "outer",
+        "pipeline": {"name": "none"},
+        "sut": {"type": "none"},
+        "tester": {"type": "generic"},
+        "traffic": {}
+    },
+    "visualize": [
+        {
+            "type": "simple",
+            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "x-axis": "tester.environ.bw2",
+            "y-axis": ["out.router.eth2.ecn-mark"]
+        }
+    ]
+}
