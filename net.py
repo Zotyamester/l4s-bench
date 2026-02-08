@@ -3,10 +3,8 @@
 import itertools
 import json
 import os
-from csv import DictReader
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
-from tempfile import NamedTemporaryFile
 
 from mininet.cli import CLI
 from mininet.link import TCLink
@@ -116,15 +114,6 @@ class L4STopo(Topo):
             self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
-def to_builtin(x):
-    for type_ctr in (int, float, str):
-        try:
-            return type_ctr(x)
-        except ValueError:
-            pass
-    return None
-
-
 def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int = 10, bw2: int = 10):
     """
     Setup the `L4STopology` with the specified parameters and benchmark the
@@ -150,33 +139,32 @@ def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int 
         info("*** Starting benchmark\n")
         h1, h2, r0 = net["h1"], net["h2"], net["r0"]
 
-        tf = NamedTemporaryFile()
-        h2.cmd(f"iperf --trip-times --enhanced --reportstyle C --output {tf.name} --server &")
-        client_output = h1.cmd(f"iperf --trip-times --enhanced --reportstyle C --client {h2.IP()}")
-        server_output = tf.read().decode("utf-8")
-        tf.close()
-
-        FIELDS = ("timestamp", "src_ip", "src_port", "dst_ip", "dst_port", "id", "interval", "transferred_bytes", "bits_per_second")
-        client_stats = {k: to_builtin(v) for k, v in next(DictReader([client_output], fieldnames=FIELDS)).items()}
-        server_stats = {k: to_builtin(v) for k, v in next(DictReader([server_output], fieldnames=FIELDS)).items()}
+        h2.cmd(
+            "iperf3 --server &"
+        )
+        client_output = h1.cmd(
+            f"iperf3 --client {h2.IP()}"
+            f"       --json"
+            f"       --time {5}"
+            f"       --interval {5}"
+        )
 
         try:
-            STATS = ("interval", "transferred_bytes", "bits_per_second")
-
             info("*** Client stats:\n")
-            client_table_filtered = {stat: client_stats[stat] for stat in STATS}
-            output(json.dumps(client_table_filtered, indent=2) + "\n")
 
-            info("*** Server stats:\n")
-            server_table_filtered = {stat: server_stats[stat] for stat in STATS}
-            output(json.dumps(server_table_filtered, indent=2) + "\n")
+            STATS = ("bytes", "bits_per_second", "rtt", "rttvar")
+
+            client_stats = json.loads(client_output)
+            client_stats_filtered = client_stats["intervals"][0]["streams"][0]
+            output(json.dumps(client_stats_filtered, indent=2) + "\n")
         except ...:
-            error("*** Couldn't parse iperf outputs\n")
+            error("*** Couldn't parse iperf3 output\n")
 
         try:
             info("*** Router stats:\n")
 
             STATS = ("bytes", "packets", "drops", "delay-c", "delay-l", "pkts-in-c", "pkts-in-l", "maxq", "ecn-mark")
+
             eth1_dump = json.loads(r0.cmd("tc -j -s qdisc show dev r0-eth1"))
             eth1_dualpi2_stats = next(filter(lambda qdisc: qdisc["kind"] == "dualpi2", eth1_dump))
             eth1_dualpi2_stats_filtered = {stat: eth1_dualpi2_stats[stat] for stat in STATS}
@@ -191,7 +179,6 @@ def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int 
 
         result = {
             "client": client_stats,
-            "server": server_stats,
             "router": {
                 "eth1": eth1_dualpi2_stats,
                 "eth2": eth2_dualpi2_stats,
