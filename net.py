@@ -16,14 +16,14 @@ from mininet.node import Node
 from mininet.topo import Topo
 
 
-class PragueHost(Node):
-    def config(self, **params):
+class Endpoint(Node):
+    def config(self, algo: str = "prague", **params):
         super().config(**params)
 
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
-        self.cmd("sysctl -w net.ipv4.tcp_ecn=3")
-        self.cmd("sysctl -w net.ipv4.tcp_congestion_control=prague")
+        self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_congestion_control={algo}")
 
 
 class DualPI2Router(Node):
@@ -52,7 +52,7 @@ class DualPI2Router(Node):
             )
             self.cmd(
                 f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2"
-                # f"   limit {10000} target {100}ms"
+                f"   limit {5555} target {100}ms"
             )
 
             info(f"\n{intf}: bw={bw_set}mbit delay={delay_set}ms")
@@ -67,9 +67,10 @@ class L4STopo(Topo):
     switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
     """
 
-    def __init__(self, n_net: int = 2, n_host: int = 1, router_params: dict | None = None, **kwargs):
+    def __init__(self, n_net: int = 2, n_host: int = 1, endpoint_params: dict | None = None, router_params: dict | None = None, **kwargs):
         self.n_net = n_net
         self.n_host = n_host
+        self.endpoint_params = endpoint_params or {}
         self.router_params = router_params or {}
         super().__init__(**kwargs)
 
@@ -85,7 +86,10 @@ class L4STopo(Topo):
         ]
 
         r0 = self.addHost(
-            "r0", cls=DualPI2Router, ip=nets[0][0].with_prefixlen, **self.router_params
+            f"r{0}",
+            cls=DualPI2Router,
+            ip=nets[0][0].with_prefixlen,
+            **self.router_params
         )  # specify the first subnet's first IP address in the `ip` param
 
         for i, (r0_i_ip, hi_ip, *_) in enumerate(nets, start=1):
@@ -103,15 +107,25 @@ class L4STopo(Topo):
             #       require a change in the naming scheme
             hi = self.addHost(
                 f"h{i}",
-                cls=PragueHost,
+                cls=Endpoint,
                 ip=hi_ip.with_prefixlen,
                 defaultRoute=f"via {r0_i_ip.ip}",
+                **self.endpoint_params
             )
 
             self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
-def run(benchmark: bool = False, out_dir: str = "/tmp", bw1: int = 10, bw2: int = 10):
+def to_builtin(x):
+    for type_ctr in (int, float, str):
+        try:
+            return type_ctr(x)
+        except ValueError:
+            pass
+    return None
+
+
+def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int = 10, bw2: int = 10):
     """
     Setup the `L4STopology` with the specified parameters and benchmark the
     performance or show the interactive Mininet console.
@@ -119,7 +133,10 @@ def run(benchmark: bool = False, out_dir: str = "/tmp", bw1: int = 10, bw2: int 
     :param benchmark: Perform benchmarks instead of entering to CLI mode.
     """
 
-    topo = L4STopo(router_params=dict(bw1=bw1, bw2=bw2))
+    topo = L4STopo(
+        endpoint_params=dict(algo=algo),
+        router_params=dict(bw1=bw1, bw2=bw2),
+    )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
 
@@ -134,14 +151,14 @@ def run(benchmark: bool = False, out_dir: str = "/tmp", bw1: int = 10, bw2: int 
         h1, h2, r0 = net["h1"], net["h2"], net["r0"]
 
         tf = NamedTemporaryFile()
-        h2.cmd(f"iperf --trip-times --reportstyle C --output {tf.name} --server &")
-        client_output = h1.cmd(f"iperf --trip-times --reportstyle C --client {h2.IP()}")
+        h2.cmd(f"iperf --trip-times --enhanced --reportstyle C --output {tf.name} --server &")
+        client_output = h1.cmd(f"iperf --trip-times --enhanced --reportstyle C --client {h2.IP()}")
         server_output = tf.read().decode("utf-8")
         tf.close()
 
         FIELDS = ("timestamp", "src_ip", "src_port", "dst_ip", "dst_port", "id", "interval", "transferred_bytes", "bits_per_second")
-        client_stats = next(DictReader([client_output], fieldnames=FIELDS))
-        server_stats = next(DictReader([server_output], fieldnames=FIELDS))
+        client_stats = {k: to_builtin(v) for k, v in next(DictReader([client_output], fieldnames=FIELDS)).items()}
+        server_stats = {k: to_builtin(v) for k, v in next(DictReader([server_output], fieldnames=FIELDS)).items()}
 
         try:
             STATS = ("interval", "transferred_bytes", "bits_per_second")
@@ -210,10 +227,11 @@ if __name__ == "__main__":
         default="/tmp",
         help="Dir to put results into / get logs from",
     )
+    parser.add_argument("--algo", default="prague")
     parser.add_argument("--bw1", default=10)
     parser.add_argument("--bw2", default=10)
 
     args = parser.parse_args()
 
     setLogLevel("info")
-    run(benchmark=args.benchmark, out_dir=args.out_dir, bw1=args.bw1, bw2=args.bw2)
+    run(benchmark=args.benchmark, out_dir=args.out_dir, algo=args.algo, bw1=args.bw1, bw2=args.bw2)

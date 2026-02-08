@@ -8,8 +8,8 @@
                     "name": "scenario1",
                     "bw1": 10,
                     "bw2": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                    "algo": "prague",
-                    "repeat": [1]
+                    "algo": ["reno", "cubic", "bbr", "prague"],
+                    "repeat": [1, 2, 3, 4, 5]
                 },
                 "script": "/vagrant/net.py --out-dir $PWD --benchmark --bw1 $bw1 --bw2 $bw2"
             }
@@ -26,8 +26,32 @@
         {
             "type": "simple",
             "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
-            "x-axis": "tester.environ.bw2",
-            "y-axis": ["out.router.eth2.ecn-mark"]
+            "x-axis": "bw2",
+            "y-axis": ["goodput"],
+            "group-by": ["algo"],
+            "aggregate": [
+                {
+                    "$match": {
+                        "tester.environ.name": "scenario1"
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "bw2": "$tester.environ.bw2", "algo": "$tester.environ.algo"
+                        },
+
+                        "null": 0,
+                        "algo": {"$first": "$tester.environ.algo"},
+                        "bw2": {"$first": "$tester.environ.bw2"},
+
+                        "goodput": {"$first": "$out.client.bits_per_second"}
+                    }
+                },
+                {
+                    "$debug": "debug.step-2.json"
+                }
+            ]
         }
     ]
 }
