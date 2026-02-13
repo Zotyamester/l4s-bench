@@ -36,9 +36,6 @@
                     }
                 },
                 {
-                    "$debug": "debug.step-1.json"
-                },
-                {
                     "$group": {
                         "_id": {
                             "bw2": "$tester.environ.bw2", "algo": "$tester.environ.algo"
@@ -48,42 +45,39 @@
                         "algo": {"$first": "$tester.environ.algo"},
                         "bw2": {"$first": "$tester.environ.bw2"},
 
-                      "goodput": {
-                        "$avg": {
-                          "$getField": {
-                            "field": "bits_per_second",
-                            "input": {
-                              "$first":
-                              {
+                        "goodput": {
+                            "$avg": {
                                 "$getField": {
-                                  "field": "streams",
-                                  "input": {"$first": "$out.client.intervals"}
+                                    "field": "bits_per_second",
+                                    "input": {
+                                        "$first":
+                                        {
+                                            "$getField": {
+                                                "field": "streams",
+                                                "input": {"$first": "$out.client.intervals"}
+                                            }
+                                        }
+                                    }
                                 }
-                              }
                             }
-                          }
-                        }
-                      },
-                      "stddev_goodput": {
-                        "$stdDevPop": {
-                          "$getField": {
-                            "field": "bits_per_second",
-                            "input": {
-                              "$first":
-                              {
+                        },
+                        "stddev_goodput": {
+                            "$stdDevPop": {
                                 "$getField": {
-                                  "field": "streams",
-                                  "input": {"$first": "$out.client.intervals"}
+                                    "field": "bits_per_second",
+                                    "input": {
+                                        "$first":
+                                        {
+                                            "$getField": {
+                                                "field": "streams",
+                                                "input": {"$first": "$out.client.intervals"}
+                                            }
+                                        }
+                                    }
                                 }
-                              }
                             }
-                          }
                         }
-                      }
                     }
-                },
-                {
-                    "$debug": "debug.step-2.json"
                 }
             ]
         },
@@ -95,38 +89,37 @@
             "error-bar": ["stddev_rtt"],
             "group-by": ["algo"],
             "aggregate": [
-              { "$match": {"tester.environ.name": "scenario1"} },
-              {
-                "$addFields": {
-                  "rtt": {
-                    "$getField": {
-                      "field": "rtt",
-                      "input": {
-                        "$first": {
-                          "$getField": {
-                            "field": "streams",
-                            "input": {"$first": "$out.client.intervals"}
-                          }
+                { "$match": {"tester.environ.name": "scenario1"} },
+                {
+                    "$addFields": {
+                        "rtt": {
+                            "$getField": {
+                                "field": "rtt",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
                         }
-                      }
                     }
-                  }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "bw2": "$tester.environ.bw2",
+                            "algo": "$tester.environ.algo"
+                        },
+                        "null": 0,
+                        "algo": {"$first": "$tester.environ.algo"},
+                        "bw2": {"$first": "$tester.environ.bw2"},
+                        "rtt": {"$avg": "$rtt"},
+                        "stddev_rtt": {"$stdDevPop": "$rtt"}
+                    }
                 }
-              },
-              { "$debug": "debug.a.json"},
-              {
-                "$group": {
-                  "_id": {
-                    "bw2": "$tester.environ.bw2",
-                    "algo": "$tester.environ.algo"
-                  },
-                  "null": 0,
-                  "algo": {"$first": "$tester.environ.algo"},
-                  "bw2": {"$first": "$tester.environ.bw2"},
-                  "rtt": {"$avg": "$rtt"},
-                  "stddev_rtt": {"$stdDevPop": "$rtt"}
-                }
-              }
             ]
         },
         {
@@ -137,31 +130,37 @@
             "error-bar": ["stddev_ratio"],
             "group-by": ["algo"],
             "aggregate": [
-              { "$match": {"tester.environ.name": "scenario1"} },
-              {
-                "$addFields": {
-                  "ratio": {
-                      "$divide": [
-                          "$out.router.eth2.ecn-mark",
-                          "$out.router.eth2.packets"
-                      ]
-                  }
+                { "$match": {"tester.environ.name": "scenario1"} },
+                {
+                    "$addFields": {
+                        "eth2": {
+                            "$arrayElemAt": [ "$out.router", 5 ]
+                        }
+                    }
+                },
+                {
+                    "$addFields": {
+                        "ratio": {
+                            "$divide": [
+                                "$eth2.ecn-mark",
+                                "$eth2.packets"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "bw2": "$tester.environ.bw2",
+                            "algo": "$tester.environ.algo"
+                        },
+                        "null": 0,
+                        "algo": {"$first": "$tester.environ.algo"},
+                        "bw2": {"$first": "$tester.environ.bw2"},
+                        "ratio": {"$avg": "$ratio"},
+                        "stddev_ratio": {"$stdDevPop": "$ratio"}
+                    }
                 }
-              },
-              { "$debug": "debug.a.json"},
-              {
-                "$group": {
-                  "_id": {
-                    "bw2": "$tester.environ.bw2",
-                    "algo": "$tester.environ.algo"
-                  },
-                  "null": 0,
-                  "algo": {"$first": "$tester.environ.algo"},
-                  "bw2": {"$first": "$tester.environ.bw2"},
-                  "ratio": {"$avg": "$ratio"},
-                  "stddev_ratio": {"$stdDevPop": "$ratio"}
-                }
-              }
             ]
         }
     ]
