@@ -3,24 +3,27 @@
 import itertools
 import json
 import os
+from collections.abc import Callable
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
 
 from mininet.cli import CLI
 from mininet.link import TCLink
-from mininet.log import info, output, error, setLogLevel
+from mininet.log import info, output, setLogLevel
 from mininet.net import Mininet
 from mininet.node import Node
 from mininet.topo import Topo
 
 
 class Endpoint(Node):
-    def config(self, algo: str = "prague", **params):
+    def config(self, **params):
         super().config(**params)
 
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
+
+    def setTcpCongestionControl(self, algo: str):
         self.cmd(f"sysctl -w net.ipv4.tcp_congestion_control={algo}")
 
 
@@ -50,7 +53,7 @@ class DualPI2Router(Node):
             )
             self.cmd(
                 f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2"
-                f"   limit {5555} target {100}ms"
+                f"   typical_rtt {2 * delay_set}ms"
             )
 
             info(f"\n{intf}: bw={bw_set}mbit delay={delay_set}ms")
@@ -114,7 +117,55 @@ class L4STopo(Topo):
             self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
-def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int = 10, bw2: int = 10):
+def iperf(net: Mininet, algo: str) -> dict:
+    h1, h2 = net["h1"], net["h2"]
+
+    h1.setTcpCongestionControl(algo)
+    h2.setTcpCongestionControl(algo)  # technically, this isn't necessary
+
+    h2.cmd(
+        "iperf3 --server &"
+    )
+    client_output = h1.cmd(
+        f"iperf3 --client {h2.IP()}"
+        f"       --json"
+        f"       --time {5}"
+        f"       --interval {5}"
+    )
+
+    return json.loads(client_output)
+
+
+def quinn_perf(net: Mininet, algo: str) -> dict:
+    h1, h2 = net["h1"], net["h2"]
+
+    h2.cmd(
+        "../quinn/target/debug/quinn-perf server --no-protection"
+        f"       --listen {h2.IP()}:{4433}"
+        f"       --congestion {algo} &"
+    )
+    client_output = h1.cmd(
+        "../quinn/target/debug/quinn-perf client --no-protection"
+        f"       --ip {h2.IP()}"
+        f"       --congestion {algo}"
+        f"       --json -"
+        f"       --duration {5}"
+        f"       --interval {5}"
+        f"       h2:{4433}"
+    )
+
+    output(client_output + "\n")
+    return {}  # json.loads(client_output)
+
+
+def run(
+    algo: str,
+    bw1: int,
+    bw2: int,
+    out_dir: str,
+    benchmark: Callable[[Mininet, ...], dict] | None = None,
+    **kwargs
+):
     """
     Setup the `L4STopology` with the specified parameters and benchmark the
     performance or show the interactive Mininet console.
@@ -123,72 +174,30 @@ def run(benchmark: bool = False, out_dir: str = "/tmp", algo="prague", bw1: int 
     """
 
     topo = L4STopo(
-        endpoint_params=dict(algo=algo),
+        endpoint_params=dict(),
         router_params=dict(bw1=bw1, bw2=bw2),
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
 
     if benchmark:
-        # Q: Shall this script perform a comprehensive benchmark with different
-        # CC & AQM methods on its own? Or maybe it can rely on external tools
-        # for parameterizing this script, and thus it should only be concerned
-        # about conducting measurement runs for a single case (i.e., with fixed
-        # CC & AQM methods).
-
         info("*** Starting benchmark\n")
-        h1, h2, r0 = net["h1"], net["h2"], net["r0"]
 
-        h2.cmd(
-            "iperf3 --server &"
-        )
-        client_output = h1.cmd(
-            f"iperf3 --client {h2.IP()}"
-            f"       --json"
-            f"       --time {5}"
-            f"       --interval {5}"
-        )
+        client_result = benchmark(net, algo)
 
-        try:
-            info("*** Client stats:\n")
-
-            STATS = ("bytes", "bits_per_second", "rtt", "rttvar")
-
-            client_stats = json.loads(client_output)
-            client_stats_filtered = client_stats["intervals"][0]["streams"][0]
-            output(json.dumps(client_stats_filtered, indent=2) + "\n")
-        except ...:
-            error("*** Couldn't parse iperf3 output\n")
-
-        try:
-            info("*** Router stats:\n")
-
-            STATS = ("bytes", "packets", "drops", "delay-c", "delay-l", "pkts-in-c", "pkts-in-l", "maxq", "ecn-mark")
-
-            eth1_dump = json.loads(r0.cmd("tc -j -s qdisc show dev r0-eth1"))
-            eth1_dualpi2_stats = next(filter(lambda qdisc: qdisc["kind"] == "dualpi2", eth1_dump))
-            eth1_dualpi2_stats_filtered = {stat: eth1_dualpi2_stats[stat] for stat in STATS}
-            output(f"{json.dumps(eth1_dualpi2_stats_filtered, indent=2)}\n")
-
-            eth2_dump = json.loads(r0.cmd("tc -j -s qdisc show dev r0-eth2"))
-            eth2_dualpi2_stats = next(filter(lambda qdisc: qdisc["kind"] == "dualpi2", eth2_dump))
-            eth2_dualpi2_stats_filtered = {stat: eth2_dualpi2_stats[stat] for stat in STATS}
-            output(f"{json.dumps(eth2_dualpi2_stats_filtered, indent=2)}\n")
-        except ...:
-            error("*** Couldn't parse tc xstats\n")
+        r0 = net["r0"]
+        r0_output = r0.cmd("tc -j -s qdisc show")
+        r0_qdisc_stats = json.loads(r0_output)
 
         result = {
-            "client": client_stats,
-            "router": {
-                "eth1": eth1_dualpi2_stats,
-                "eth2": eth2_dualpi2_stats,
-            },
+            "client": client_result,
+            "router": r0_qdisc_stats,
         }
 
         with open(os.path.join(out_dir, "result.json"), "w") as f:
             json.dump(result, f)
-            info("*** Dumping stats\n")
-            output(f"Stats saved to '{f.name}'\n")
+            info("*** Saving results\n")
+            output(f"Results saved to '{f.name}'\n")
 
         info("*** Stopping benchmark\n")
     else:
@@ -202,10 +211,17 @@ if __name__ == "__main__":
         description="A Mininet-based testbench for measuring L4S's performance."
     )
     parser.add_argument(
-        "--benchmark",
+        "--quic-benchmark",
         action=BooleanOptionalAction,
         default=False,
-        help="Perform automatic benchmarks on the topology instead of entering"
+        help="Perform QUIC benchmarks on the topology instead of entering"
+             " to interactive CLI mode.",
+    )
+    parser.add_argument(
+        "--tcp-benchmark",
+        action=BooleanOptionalAction,
+        default=False,
+        help="Perform TCP benchmarks on the topology instead of entering"
              " to interactive CLI mode.",
     )
     parser.add_argument(
@@ -221,4 +237,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     setLogLevel("info")
-    run(benchmark=args.benchmark, out_dir=args.out_dir, algo=args.algo, bw1=args.bw1, bw2=args.bw2)
+
+    benchmark = None
+    if args.quic_benchmark:
+        benchmark = quinn_perf
+    elif args.tcp_benchmark:
+        benchmark = iperf
+
+    run(algo=args.algo, bw1=args.bw1, bw2=args.bw2,
+        out_dir=args.out_dir, benchmark=benchmark)
