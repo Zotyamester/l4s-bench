@@ -6,12 +6,11 @@
                 "type": "generic",
                 "environ": {
                     "name": "scenario1",
-                    "bw1": 10,
                     "bw2": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                     "algo": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3, 4, 5]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --benchmark --bw1 $bw1 --bw2 $bw2"
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --bw2 $bw2"
             }
         }
     ],
@@ -28,12 +27,16 @@
             "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
             "x-axis": "bw2",
             "y-axis": ["goodput"],
+            "error-bar": ["stddev_goodput"],
             "group-by": ["algo"],
             "aggregate": [
                 {
                     "$match": {
                         "tester.environ.name": "scenario1"
                     }
+                },
+                {
+                    "$debug": "debug.step-1.json"
                 },
                 {
                     "$group": {
@@ -45,12 +48,120 @@
                         "algo": {"$first": "$tester.environ.algo"},
                         "bw2": {"$first": "$tester.environ.bw2"},
 
-                        "goodput": {"$first": "$out.client.bits_per_second"}
+                      "goodput": {
+                        "$avg": {
+                          "$getField": {
+                            "field": "bits_per_second",
+                            "input": {
+                              "$first":
+                              {
+                                "$getField": {
+                                  "field": "streams",
+                                  "input": {"$first": "$out.client.intervals"}
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "stddev_goodput": {
+                        "$stdDevPop": {
+                          "$getField": {
+                            "field": "bits_per_second",
+                            "input": {
+                              "$first":
+                              {
+                                "$getField": {
+                                  "field": "streams",
+                                  "input": {"$first": "$out.client.intervals"}
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                 },
                 {
                     "$debug": "debug.step-2.json"
                 }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "Latency of classic vs. L4S-based CCs with varying bottleneck bandwidths [ms]",
+            "x-axis": "bw2",
+            "y-axis": ["rtt"],
+            "error-bar": ["stddev_rtt"],
+            "group-by": ["algo"],
+            "aggregate": [
+              { "$match": {"tester.environ.name": "scenario1"} },
+              {
+                "$addFields": {
+                  "rtt": {
+                    "$getField": {
+                      "field": "rtt",
+                      "input": {
+                        "$first": {
+                          "$getField": {
+                            "field": "streams",
+                            "input": {"$first": "$out.client.intervals"}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              { "$debug": "debug.a.json"},
+              {
+                "$group": {
+                  "_id": {
+                    "bw2": "$tester.environ.bw2",
+                    "algo": "$tester.environ.algo"
+                  },
+                  "null": 0,
+                  "algo": {"$first": "$tester.environ.algo"},
+                  "bw2": {"$first": "$tester.environ.bw2"},
+                  "rtt": {"$avg": "$rtt"},
+                  "stddev_rtt": {"$stdDevPop": "$rtt"}
+                }
+              }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths [count]",
+            "x-axis": "bw2",
+            "y-axis": ["ratio"],
+            "error-bar": ["stddev_ratio"],
+            "group-by": ["algo"],
+            "aggregate": [
+              { "$match": {"tester.environ.name": "scenario1"} },
+              {
+                "$addFields": {
+                  "ratio": {
+                      "$divide": [
+                          "$out.router.eth2.ecn-mark",
+                          "$out.router.eth2.packets"
+                      ]
+                  }
+                }
+              },
+              { "$debug": "debug.a.json"},
+              {
+                "$group": {
+                  "_id": {
+                    "bw2": "$tester.environ.bw2",
+                    "algo": "$tester.environ.algo"
+                  },
+                  "null": 0,
+                  "algo": {"$first": "$tester.environ.algo"},
+                  "bw2": {"$first": "$tester.environ.bw2"},
+                  "ratio": {"$avg": "$ratio"},
+                  "stddev_ratio": {"$stdDevPop": "$ratio"}
+                }
+              }
             ]
         }
     ]
