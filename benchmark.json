@@ -6,11 +6,11 @@
                 "type": "generic",
                 "environ": {
                     "name": "scenario1",
-                    "bw2": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                    "algo": ["reno", "cubic", "bbr", "prague"],
+                    "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "algorithm": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3, 4, 5]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --bw2 $bw2"
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
             }
         }
     ],
@@ -25,10 +25,10 @@
         {
             "type": "simple",
             "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
-            "x-axis": "bw2",
+            "x-axis": "btl_bw",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
-            "group-by": ["algo"],
+            "group-by": ["algorithm"],
             "aggregate": [
                 {
                     "$match": {
@@ -38,12 +38,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "bw2": "$tester.environ.bw2", "algo": "$tester.environ.algo"
+                            "btl_bw": "$tester.environ.btl_bw", "algorithm": "$tester.environ.algorithm"
                         },
 
                         "null": 0,
-                        "algo": {"$first": "$tester.environ.algo"},
-                        "bw2": {"$first": "$tester.environ.bw2"},
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
 
                         "goodput": {
                             "$avg": {
@@ -84,10 +84,10 @@
         {
             "type": "simple",
             "title": "Latency of classic vs. L4S-based CCs with varying bottleneck bandwidths [ms]",
-            "x-axis": "bw2",
+            "x-axis": "btl_bw",
             "y-axis": ["rtt"],
             "error-bar": ["stddev_rtt"],
-            "group-by": ["algo"],
+            "group-by": ["algorithm"],
             "aggregate": [
                 { "$match": {"tester.environ.name": "scenario1"} },
                 {
@@ -110,12 +110,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "bw2": "$tester.environ.bw2",
-                            "algo": "$tester.environ.algo"
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
                         },
                         "null": 0,
-                        "algo": {"$first": "$tester.environ.algo"},
-                        "bw2": {"$first": "$tester.environ.bw2"},
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
                         "rtt": {"$avg": "$rtt"},
                         "stddev_rtt": {"$stdDevPop": "$rtt"}
                     }
@@ -123,45 +123,56 @@
             ]
         },
         {
-            "type": "simple",
-            "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths [count]",
-            "x-axis": "bw2",
-            "y-axis": ["ratio"],
-            "error-bar": ["stddev_ratio"],
-            "group-by": ["algo"],
-            "aggregate": [
-                { "$match": {"tester.environ.name": "scenario1"} },
-                {
-                    "$addFields": {
-                        "eth2": {
-                            "$arrayElemAt": [ "$out.router", 5 ]
-                        }
+          "type": "simple",
+          "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths [count]",
+          "x-axis": "btl_bw",
+          "y-axis": ["ratio"],
+          "error-bar": ["stddev_ratio"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            { "$match": {"tester.environ.name": "scenario1"} },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "r0-eth2"]}
+                        ]
+                      }
                     }
-                },
-                {
-                    "$addFields": {
-                        "ratio": {
-                            "$divide": [
-                                "$eth2.ecn-mark",
-                                "$eth2.packets"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": {
-                            "bw2": "$tester.environ.bw2",
-                            "algo": "$tester.environ.algo"
-                        },
-                        "null": 0,
-                        "algo": {"$first": "$tester.environ.algo"},
-                        "bw2": {"$first": "$tester.environ.bw2"},
-                        "ratio": {"$avg": "$ratio"},
-                        "stddev_ratio": {"$stdDevPop": "$ratio"}
-                    }
+                  }
                 }
-            ]
+              }
+            },
+            {
+              "$addFields": {
+                "ratio": {
+                  "$divide": [
+                    "$eth2.ecn_mark",
+                    "$eth2.packets"
+                  ]
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "ratio": {"$avg": "$ratio"},
+                "stddev_ratio": {"$stdDevPop": "$ratio"}
+              }
+            }
+          ]
         }
     ]
 }

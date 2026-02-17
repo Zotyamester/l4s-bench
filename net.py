@@ -23,40 +23,34 @@ class Endpoint(Node):
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
 
-    def setTcpCongestionControl(self, algo: str):
-        self.cmd(f"sysctl -w net.ipv4.tcp_congestion_control={algo}")
+    def setTcpCongestionControl(self, algorithm: str):
+        self.cmd(f"sysctl -w net.ipv4.tcp_congestion_control={algorithm}")
 
 
 class DualPI2Router(Node):
-    def config(self, delay: int = 50, bw: int = 5, **kwargs):
+    def config(self, btl_bw: int, **kwargs):
         super().config(**kwargs)
 
         info("\n*** Setting up router interfaces")
 
-        for i, intf in enumerate(self.intfList(), start=1):
-            delay_set = kwargs.get(f"delay{i}", delay)
-            bw_set = kwargs.get(f"bw{i}", bw)
+        intf = f"{self.name}-eth2"
 
-            self.cmd(
-                f"ethtool -K {intf} tso off gso off gro off lro off"
-            )
-            self.cmd(
-                f"tc qdisc replace dev {intf} root handle 1: htb default 10"
-            )
-            self.cmd(
-                f"tc class add dev {intf} parent 1: classid 1:10 htb"
-                f"   rate {bw_set}mbit ceil {bw_set}mbit"
-            )
-            self.cmd(
-                f"tc qdisc add dev {intf} parent 1:10 handle 20: netem"
-                f"   delay {delay_set}ms"
-            )
-            self.cmd(
-                f"tc qdisc add dev {intf} parent 20: handle 30: dualpi2"
-                f"   typical_rtt {2 * delay_set}ms"
-            )
+        self.cmd(
+            f"ethtool -K {intf} tso off gso off gro off lro off"
+        )
+        self.cmd(
+            f"tc qdisc replace dev {intf} root handle 1: htb default 10"
+        )
+        self.cmd(
+            f"tc class add dev {intf} parent 1: classid 1:10 htb"
+            f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
+        )
+        self.cmd(
+            f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2"
+            # TODO: experiment with parameters
+        )
 
-            info(f"\n{intf}: bw={bw_set}mbit delay={delay_set}ms")
+        info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
 
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
@@ -68,7 +62,9 @@ class L4STopo(Topo):
     switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
     """
 
-    def __init__(self, n_net: int = 2, n_host: int = 1, endpoint_params: dict | None = None, router_params: dict | None = None, **kwargs):
+    def __init__(self, n_net: int = 2, n_host: int = 1,
+                 endpoint_params: dict | None = None,
+                 router_params: dict | None = None, **kwargs):
         self.n_net = n_net
         self.n_host = n_host
         self.endpoint_params = endpoint_params or {}
@@ -117,11 +113,11 @@ class L4STopo(Topo):
             self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
 
 
-def iperf(net: Mininet, algo: str) -> dict:
+def iperf(net: Mininet, algorithm: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
-    h1.setTcpCongestionControl(algo)
-    h2.setTcpCongestionControl(algo)  # technically, this isn't necessary
+    h1.setTcpCongestionControl(algorithm)
+    h2.setTcpCongestionControl(algorithm)  # technically, this isn't necessary
 
     h2.cmd(
         "iperf3 --server &"
@@ -130,38 +126,36 @@ def iperf(net: Mininet, algo: str) -> dict:
         f"iperf3 --client {h2.IP()}"
         f"       --json"
         f"       --time {5}"
-        f"       --interval {5}"
+        f"       --interval {1}"
     )
 
     return json.loads(client_output)
 
 
-def quinn_perf(net: Mininet, algo: str) -> dict:
+def quinn_perf(net: Mininet, algorithm: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
-        "../quinn/target/debug/quinn-perf server --no-protection"
+        "/home/vagrant/quinn-perf server --no-protection"
         f"       --listen {h2.IP()}:{4433}"
-        f"       --congestion {algo} &"
+        f"       --congestion {algorithm} &"
     )
     client_output = h1.cmd(
-        "../quinn/target/debug/quinn-perf client --no-protection"
+        "/home/vagrant/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
-        f"       --congestion {algo}"
+        f"       --congestion {algorithm}"
         f"       --json -"
         f"       --duration {5}"
-        f"       --interval {5}"
-        f"       h2:{4433}"
-    )
+        f"       --interval {1}"
+        f"       h2:{4433} 2> /dev/null"
+    ).split("\n")[-1]
 
-    output(client_output + "\n")
-    return {}  # json.loads(client_output)
+    return json.loads(client_output)
 
 
 def run(
-    algo: str,
-    bw1: int,
-    bw2: int,
+    algorithm: str,
+    btl_bw: int,
     out_dir: str,
     benchmark: Callable[[Mininet, ...], dict] | None = None,
     **kwargs
@@ -175,35 +169,36 @@ def run(
 
     topo = L4STopo(
         endpoint_params=dict(),
-        router_params=dict(bw1=bw1, bw2=bw2),
+        router_params=dict(btl_bw=btl_bw),
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
 
-    if benchmark:
-        info("*** Starting benchmark\n")
+    try:
+        if benchmark:
+            info("*** Starting benchmark\n")
 
-        client_result = benchmark(net, algo)
+            client_result = benchmark(net, algorithm)
 
-        r0 = net["r0"]
-        r0_output = r0.cmd("tc -j -s qdisc show")
-        r0_qdisc_stats = json.loads(r0_output)
+            r0 = net["r0"]
+            r0_output = r0.cmd("tc -j -s qdisc show")
+            r0_qdisc_stats = json.loads(r0_output)
 
-        result = {
-            "client": client_result,
-            "router": r0_qdisc_stats,
-        }
+            result = {
+                "client": client_result,
+                "router": r0_qdisc_stats,
+            }
 
-        with open(os.path.join(out_dir, "result.json"), "w") as f:
-            json.dump(result, f)
-            info("*** Saving results\n")
-            output(f"Results saved to '{f.name}'\n")
+            with open(os.path.join(out_dir, "result.json"), "w") as f:
+                json.dump(result, f)
+                info("*** Saving results\n")
+                output(f"Results saved to '{f.name}'\n")
 
-        info("*** Stopping benchmark\n")
-    else:
-        CLI(net)
-
-    net.stop()
+            info("*** Stopping benchmark\n")
+        else:
+            CLI(net)
+    finally:
+        net.stop()
 
 
 if __name__ == "__main__":
@@ -230,9 +225,8 @@ if __name__ == "__main__":
         default="/tmp",
         help="Dir to put results into / get logs from",
     )
-    parser.add_argument("--algo", default="prague")
-    parser.add_argument("--bw1", default=10)
-    parser.add_argument("--bw2", default=10)
+    parser.add_argument("--algorithm", default="prague")
+    parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
 
     args = parser.parse_args()
 
@@ -244,5 +238,5 @@ if __name__ == "__main__":
     elif args.tcp_benchmark:
         benchmark = iperf
 
-    run(algo=args.algo, bw1=args.bw1, bw2=args.bw2,
+    run(algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
         out_dir=args.out_dir, benchmark=benchmark)
