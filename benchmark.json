@@ -124,7 +124,7 @@
         },
         {
           "type": "simple",
-          "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths [count]",
+          "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
           "x-axis": "btl_bw",
           "y-axis": ["ratio"],
           "error-bar": ["stddev_ratio"],
@@ -154,6 +154,58 @@
                 "ratio": {
                   "$divide": [
                     "$eth2.ecn_mark",
+                    "$eth2.packets"
+                  ]
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "ratio": {"$avg": "$ratio"},
+                "stddev_ratio": {"$stdDevPop": "$ratio"}
+              }
+            }
+          ]
+        },
+        {
+          "type": "simple",
+          "title": "Dropping ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "x-axis": "btl_bw",
+          "y-axis": ["ratio"],
+          "error-bar": ["stddev_ratio"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            { "$match": {"tester.environ.name": "scenario1"} },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "r0-eth2"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$addFields": {
+                "ratio": {
+                  "$divide": [
+                    "$eth2.drops",
                     "$eth2.packets"
                   ]
                 }
