@@ -28,14 +28,10 @@ class DualPI2Router(Node):
     def config(
         self,
         btl_bw: int,
-        qlimit_in_packets: int | None = None,
-        qlimit_in_bytes: int | None = None,
+        rtt: int,
         **kwargs
     ):
         super().config(**kwargs)
-
-        if (qlimit_in_packets is None) == (qlimit_in_bytes is None):
-            raise ValueError("queue limit must be specified either in packets or bytes")
 
         info("\n*** Setting up router interfaces")
 
@@ -51,14 +47,18 @@ class DualPI2Router(Node):
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
             f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
         )
+
+        bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
+        rtt_in_s = rtt / 1e3  # ms to s conversion
+
+        # BDP [B] = BW [Bps] * RTT [s]
+        bdp = int(bw_in_Bps * rtt_in_s)
+
         self.cmd(
             f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2"
-            + (
-                f" limit {qlimit_in_packets}"
-                if qlimit_in_packets is not None
-                else
-                f" memlimit {qlimit_in_bytes}"
-            )
+            f" memlimit {bdp}"
+            f" typical_rtt {rtt}ms"
+            f" target {1000}"  # us
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -184,16 +184,11 @@ def run(
     :param benchmark: The benchmarking function to be exectued instead of entering to CLI mode.
     """
 
-    bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
     rtt = 2 * 2 * last_mile_delay + 1  # 2 * (D_H1->S1 + D_S2->H2) + D_PROC
-    rtt_in_s = rtt / 1e3  # ms to s conversion
-
-    # BDP [B] = BW [Bps] * RTT [s]
-    bdp = int(bw_in_Bps * rtt_in_s)
 
     topo = L4STopo(
         endpoint_params=dict(),
-        router_params=dict(btl_bw=btl_bw, qlimit_in_bytes=bdp),
+        router_params=dict(btl_bw=btl_bw, rtt=rtt),
         last_mile_delay=last_mile_delay,
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
