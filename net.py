@@ -23,13 +23,19 @@ class Endpoint(Node):
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
 
-    def setTcpCongestionControl(self, algorithm: str):
-        self.cmd(f"sysctl -w net.ipv4.tcp_congestion_control={algorithm}")
-
 
 class DualPI2Router(Node):
-    def config(self, btl_bw: int, **kwargs):
+    def config(
+        self,
+        btl_bw: int,
+        qlimit_in_packets: int | None = None,
+        qlimit_in_bytes: int | None = None,
+        **kwargs
+    ):
         super().config(**kwargs)
+
+        if (qlimit_in_packets is None) == (qlimit_in_bytes is None):
+            raise ValueError("queue limit must be specified either in packets or bytes")
 
         info("\n*** Setting up router interfaces")
 
@@ -47,7 +53,12 @@ class DualPI2Router(Node):
         )
         self.cmd(
             f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2"
-            # TODO: experiment with parameters
+            + (
+                f" limit {qlimit_in_packets}"
+                if qlimit_in_packets is not None
+                else
+                f" memlimit {qlimit_in_bytes}"
+            )
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -64,11 +75,14 @@ class L4STopo(Topo):
 
     def __init__(self, n_net: int = 2, n_host: int = 1,
                  endpoint_params: dict | None = None,
-                 router_params: dict | None = None, **kwargs):
+                 router_params: dict | None = None,
+                 last_mile_delay: int = 5,
+                 **kwargs):
         self.n_net = n_net
         self.n_host = n_host
         self.endpoint_params = endpoint_params or {}
         self.router_params = router_params or {}
+        self.last_mile_delay = last_mile_delay
         super().__init__(**kwargs)
 
     def build(self):
@@ -110,22 +124,20 @@ class L4STopo(Topo):
                 **self.endpoint_params
             )
 
-            self.addLink(hi, si)  # , cls=TCLink, delay="50ms", bw=10)
+            self.addLink(hi, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
 def iperf(net: Mininet, algorithm: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
-
-    h1.setTcpCongestionControl(algorithm)
-    h2.setTcpCongestionControl(algorithm)  # technically, this isn't necessary
 
     h2.cmd(
         "iperf3 --server &"
     )
     client_output = h1.cmd(
         f"iperf3 --client {h2.IP()}"
+        f"       --congestion {algorithm}"
         f"       --json"
-        f"       --time {5}"
+        f"       --time {10}"
         f"       --interval {1}"
     )
 
@@ -145,7 +157,7 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
         f"       --ip {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json -"
-        f"       --duration {5}"
+        f"       --duration {10}"
         f"       --interval {1}"
         f"       h2:{4433} 2> /dev/null"
     ).split("\n")[-1]
@@ -156,6 +168,7 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
 def run(
     algorithm: str,
     btl_bw: int,
+    last_mile_delay: int,
     out_dir: str,
     benchmark: Callable[[Mininet, ...], dict] | None = None,
     **kwargs
@@ -164,12 +177,24 @@ def run(
     Setup the `L4STopology` with the specified parameters and benchmark the
     performance or show the interactive Mininet console.
 
-    :param benchmark: Perform benchmarks instead of entering to CLI mode.
+    :param algorithm: The congestion control algorithm to be used.
+    :param btl_bw: The bandwidth of the bottleneck link.
+    :param delay: The delay to be set on the last-mile links (i.e., between the endpoints and their corresponding switches).
+    :param out_dir: The location where the results of the benchmark shall be placed.
+    :param benchmark: The benchmarking function to be exectued instead of entering to CLI mode.
     """
+
+    bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
+    rtt = 2 * 2 * last_mile_delay + 1  # 2 * (D_H1->S1 + D_S2->H2) + D_PROC
+    rtt_in_s = rtt / 1e3  # ms to s conversion
+
+    # BDP [B] = BW [Bps] * RTT [s]
+    bdp = int(bw_in_Bps * rtt_in_s)
 
     topo = L4STopo(
         endpoint_params=dict(),
-        router_params=dict(btl_bw=btl_bw),
+        router_params=dict(btl_bw=btl_bw, qlimit_in_bytes=bdp),
+        last_mile_delay=last_mile_delay,
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
     net.start()
@@ -203,7 +228,7 @@ def run(
 
 if __name__ == "__main__":
     parser = ArgumentParser(
-        description="A Mininet-based testbench for measuring L4S's performance."
+        description="A Mininet-based testbed for measuring L4S's performance."
     )
     parser.add_argument(
         "--quic-benchmark",
@@ -227,6 +252,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
+    parser.add_argument("--last-mile-delay", type=int, default=5)
 
     args = parser.parse_args()
 
@@ -239,4 +265,4 @@ if __name__ == "__main__":
         benchmark = iperf
 
     run(algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
-        out_dir=args.out_dir, benchmark=benchmark)
+        last_mile_delay=args.last_mile_delay, out_dir=args.out_dir, benchmark=benchmark)
