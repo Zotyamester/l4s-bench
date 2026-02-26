@@ -29,6 +29,7 @@ class DualPI2Router(Node):
         self,
         btl_bw: int,
         rtt: int,
+        manual_override: str = "",
         **kwargs
     ):
         super().config(**kwargs)
@@ -55,10 +56,13 @@ class DualPI2Router(Node):
         bdp = int(bw_in_Bps * rtt_in_s)
 
         self.cmd(
-            f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2"
-            f" memlimit {bdp}"
-            f" typical_rtt {rtt}ms"
-            f" target {1000}"  # us
+            f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 " +
+            (
+                manual_override if manual_override != "" else
+                f" memlimit {bdp}"
+                f" typical_rtt {rtt}ms"
+                f" target {1000}"  # us
+            )
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -170,6 +174,7 @@ def run(
     btl_bw: int,
     last_mile_delay: int,
     out_dir: str,
+    override_dualpi2: str = "",
     benchmark: Callable[[Mininet, ...], dict] | None = None,
     **kwargs
 ):
@@ -188,7 +193,7 @@ def run(
 
     topo = L4STopo(
         endpoint_params=dict(),
-        router_params=dict(btl_bw=btl_bw, rtt=rtt),
+        router_params=dict(btl_bw=btl_bw, rtt=rtt, manual_override=override_dualpi2),
         last_mile_delay=last_mile_delay,
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
@@ -248,6 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
+    parser.add_argument("--override-dualpi2", type=str, default="")
 
     args = parser.parse_args()
 
@@ -259,5 +265,8 @@ if __name__ == "__main__":
     elif args.tcp_benchmark:
         benchmark = iperf
 
-    run(algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
-        last_mile_delay=args.last_mile_delay, out_dir=args.out_dir, benchmark=benchmark)
+    run(
+        algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
+        last_mile_delay=args.last_mile_delay, out_dir=args.out_dir,
+        override_dualpi2=args.override_dualpi2, benchmark=benchmark,
+    )
