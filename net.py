@@ -36,7 +36,7 @@ class DualPI2Router(Node):
 
         info("\n*** Setting up router interfaces")
 
-        intf = f"{self.name}-eth2"
+        intf = "eth2"
 
         self.cmd(
             f"ethtool -K {intf} tso off gso off gro off lro off"
@@ -113,7 +113,7 @@ class L4STopo(Topo):
             self.addLink(
                 si,
                 r0,
-                intfName2=f"r0-eth{i}",
+                intfName2=f"eth{i}",
                 cls=TCLink,
                 params2={"ip": r0_i_ip.with_prefixlen},
             )
@@ -152,19 +152,21 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
-        "/home/vagrant/quinn-perf server --no-protection"
+        "/home/zoltan/quinn/target/debug/quinn-perf server --no-protection"
         f"       --listen {h2.IP()}:{4433}"
+        f"       --ecn l4s"
         f"       --congestion {algorithm} &"
     )
     client_output = h1.cmd(
-        "/home/vagrant/quinn-perf client --no-protection"
+        "/home/zoltan/quinn/target/debug/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
+        f"       --ecn l4s"
         f"       --congestion {algorithm}"
         f"       --json -"
         f"       --duration {10}"
         f"       --interval {1}"
         f"       h2:{4433} 2> /dev/null"
-    ).split("\n")[-1]
+    ).splitlines()[-1]
 
     return json.loads(client_output)
 
