@@ -152,13 +152,13 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
-        "/home/zoltan/quinn/target/debug/quinn-perf server --no-protection"
+        "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
         f"       --listen {h2.IP()}:{4433}"
         f"       --ecn l4s"
         f"       --congestion {algorithm} &"
     )
     client_output = h1.cmd(
-        "/home/zoltan/quinn/target/debug/quinn-perf client --no-protection"
+        "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
@@ -167,6 +167,8 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
         f"       --interval {1}"
         f"       h2:{4433} 2> /dev/null"
     ).splitlines()[-1]
+
+    info(f"{client_output}\n")
 
     return json.loads(client_output)
 

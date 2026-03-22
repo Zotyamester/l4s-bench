@@ -7,10 +7,10 @@
                 "environ": {
                     "name": "scenario1",
                     "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "algorithm": ["new-reno", "cubic", "bbr", "prague"],
                     "repeat": [1]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
+                "script": "/vagrant/net.py --out-dir $PWD --quic-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
             }
         },
         {
@@ -21,10 +21,10 @@
                     "name": "scenario2",
                     "btl_bw": [10],
                     "packet_limit": [0],
-                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "algorithm": ["new-reno", "cubic", "bbr", "prague"],
                     "repeat": [1]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
+                "script": "/vagrant/net.py --out-dir $PWD --quic-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
             }
         },
         {
@@ -35,10 +35,10 @@
                     "name": "scenario2",
                     "btl_bw": [10],
                     "packet_limit": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "algorithm": ["new-reno", "cubic", "bbr", "prague"],
                     "repeat": [1]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --override-dualpi2 'limit $packet_limit'"
+                "script": "/vagrant/net.py --out-dir $PWD --quic-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --override-dualpi2 'limit $packet_limit'"
             }
         }
 
@@ -49,6 +49,11 @@
         "sut": {"type": "none"},
         "tester": {"type": "generic"},
         "traffic": {}
+    },
+    "report" : {
+        "type": "presentation",
+        "title": "Demo for report-type 'presentation'",
+        "author":  "each plot is a separate beamer frame"
     },
     "visualize": [
         {
@@ -112,7 +117,7 @@
         },
         {
             "type": "simple",
-            "title": "Latency of classic vs. L4S-based CCs with varying bottleneck bandwidths [ms]",
+            "title": "RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]",
             "x-axis": "btl_bw",
             "y-axis": ["rtt"],
             "error-bar": ["rttvar"],
@@ -166,13 +171,14 @@
         },
         {
           "type": "simple",
-          "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "title": "No. ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
           "x-axis": "btl_bw",
-          "y-axis": ["ratio"],
-          "error-bar": ["stddev_ratio"],
+          "y-axis": ["ecn_marks"],
+          "error-bar": ["stddev_ecn_marks"],
           "group-by": ["algorithm"],
           "aggregate": [
             { "$match": {"tester.environ.name": "scenario1"} },
+            { "$match": {"$not": {"tester.environ.algorithm": "prague"}} },
             {
               "$addFields": {
                 "eth2": {
@@ -192,16 +198,6 @@
               }
             },
             {
-              "$addFields": {
-                "ratio": {
-                  "$divide": [
-                    "$eth2.ecn_mark",
-                    "$eth2.packets"
-                  ]
-                }
-              }
-            },
-            {
               "$group": {
                 "_id": {
                   "btl_bw": "$tester.environ.btl_bw",
@@ -210,18 +206,18 @@
                 "null": 0,
                 "algorithm": {"$first": "$tester.environ.algorithm"},
                 "btl_bw": {"$first": "$tester.environ.btl_bw"},
-                "ratio": {"$avg": "$ratio"},
-                "stddev_ratio": {"$stdDevPop": "$ratio"}
+                "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
               }
             }
           ]
         },
         {
           "type": "simple",
-          "title": "Dropping ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "title": "No. Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
           "x-axis": "btl_bw",
-          "y-axis": ["ratio"],
-          "error-bar": ["stddev_ratio"],
+          "y-axis": ["drops"],
+          "error-bar": ["stddev_drops"],
           "group-by": ["algorithm"],
           "aggregate": [
             { "$match": {"tester.environ.name": "scenario1"} },
@@ -244,16 +240,6 @@
               }
             },
             {
-              "$addFields": {
-                "ratio": {
-                  "$divide": [
-                    "$eth2.drops",
-                    "$eth2.packets"
-                  ]
-                }
-              }
-            },
-            {
               "$group": {
                 "_id": {
                   "btl_bw": "$tester.environ.btl_bw",
@@ -262,15 +248,15 @@
                 "null": 0,
                 "algorithm": {"$first": "$tester.environ.algorithm"},
                 "btl_bw": {"$first": "$tester.environ.btl_bw"},
-                "ratio": {"$avg": "$ratio"},
-                "stddev_ratio": {"$stdDevPop": "$ratio"}
+                "drops": {"$avg": "$eth2.drops"},
+                "stddev_drops": {"$stdDevPop": "$eth2.drops"}
               }
             }
           ]
         },
         {
             "type": "simple",
-            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "title": "Goodput of classic vs. L4S-based CCs with varying buffer lengths [bps]",
             "x-axis": "packet_limit",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
@@ -329,7 +315,7 @@
         },
         {
             "type": "simple",
-            "title": "Latency of classic vs. L4S-based CCs with varying bottleneck bandwidths [ms]",
+            "title": "RTTs of classic vs. L4S-based CCs with varying buffer lengths [us]",
             "x-axis": "packet_limit",
             "y-axis": ["rtt"],
             "error-bar": ["stddev_rtt"],
@@ -370,10 +356,10 @@
         },
         {
           "type": "simple",
-          "title": "ECN-marking ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "title": "No. ECN-marked packets of classic vs. L4S-based CCs with varying buffer lengths",
           "x-axis": "packet_limit",
-          "y-axis": ["ratio"],
-          "error-bar": ["stddev_ratio"],
+          "y-axis": ["ecn_marks"],
+          "error-bar": ["stddev_ecn_marks"],
           "group-by": ["algorithm"],
           "aggregate": [
             { "$match": {"tester.environ.name": "scenario2"} },
@@ -396,36 +382,26 @@
               }
             },
             {
-              "$addFields": {
-                "ratio": {
-                  "$divide": [
-                    "$eth2.ecn_mark",
-                    "$eth2.packets"
-                  ]
+                "$group": {
+                    "_id": {
+                        "packet_limit": "$tester.environ.packet_limit",
+                        "algorithm": "$tester.environ.algorithm"
+                    },
+                    "null": 0,
+                    "algorithm": {"$first": "$tester.environ.algorithm"},
+                    "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                    "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                    "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
                 }
-              }
-            },
-            {
-              "$group": {
-                "_id": {
-                  "packet_limit": "$tester.environ.packet_limit",
-                  "algorithm": "$tester.environ.algorithm"
-                },
-                "null": 0,
-                "algorithm": {"$first": "$tester.environ.algorithm"},
-                "packet_limit": {"$first": "$tester.environ.packet_limit"},
-                "ratio": {"$avg": "$ratio"},
-                "stddev_ratio": {"$stdDevPop": "$ratio"}
-              }
             }
           ]
         },
         {
           "type": "simple",
-          "title": "Dropping ratio of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "title": "No. Dropped packets of classic vs. L4S-based CCs with varying buffer lengths",
           "x-axis": "packet_limit",
-          "y-axis": ["ratio"],
-          "error-bar": ["stddev_ratio"],
+          "y-axis": ["drops"],
+          "error-bar": ["stddev_drops"],
           "group-by": ["algorithm"],
           "aggregate": [
             { "$match": {"tester.environ.name": "scenario2"} },
@@ -448,27 +424,17 @@
               }
             },
             {
-              "$addFields": {
-                "ratio": {
-                  "$divide": [
-                    "$eth2.drops",
-                    "$eth2.packets"
-                  ]
+                "$group": {
+                    "_id": {
+                        "packet_limit": "$tester.environ.packet_limit",
+                        "algorithm": "$tester.environ.algorithm"
+                    },
+                    "null": 0,
+                    "algorithm": {"$first": "$tester.environ.algorithm"},
+                    "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                    "drops": {"$avg": "$eth2.drops"},
+                    "stddev_drops": {"$stdDevPop": "$eth2.drops"}
                 }
-              }
-            },
-            {
-              "$group": {
-                "_id": {
-                  "packet_limit": "$tester.environ.packet_limit",
-                  "algorithm": "$tester.environ.algorithm"
-                },
-                "null": 0,
-                "algorithm": {"$first": "$tester.environ.algorithm"},
-                "packet_limit": {"$first": "$tester.environ.packet_limit"},
-                "ratio": {"$avg": "$ratio"},
-                "stddev_ratio": {"$stdDevPop": "$ratio"}
-              }
             }
           ]
         }
