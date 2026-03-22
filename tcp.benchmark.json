@@ -5,10 +5,23 @@
             "tester": {
                 "type": "generic",
                 "environ": {
+                    "name": "scenario1",
+                    "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "algorithm": ["new-reno", "cubic", "bbr", "prague"],
+                    "repeat": [1]
+                },
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
+            }
+        },
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
                     "name": "scenario2",
                     "btl_bw": [10],
                     "delay": 50,
-                    "packet_limit": [0],
+                    "queue_size": [0],
                     "algorithm": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3, 4, 5]
                 },
@@ -23,11 +36,11 @@
                     "name": "scenario2",
                     "btl_bw": [10],
                     "delay": 50,
-                    "packet_limit": [162, 163, 164, 165, 166, 167, 168, 169, 170],
+                    "queue_size": [110, 120, 130, 140, 150, 160, 166, 170, 180, 190, 200, 210],
                     "algorithm": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3, 4, 5]
                 },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay --override-dualpi2 'limit $packet_limit'"
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay --override-dualpi2 'limit $queue_size'"
             }
         }
 
@@ -42,8 +55,206 @@
     "visualize": [
         {
             "type": "simple",
+            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "x-axis": "btl_bw",
+            "y-axis": ["goodput"],
+            "error-bar": ["stddev_goodput"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                {
+                    "$match": {
+                        "tester.environ.name": "scenario1"
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw", "algorithm": "$tester.environ.algorithm"
+                        },
+
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+
+                        "goodput": {
+                            "$avg": {
+                                "$getField": {
+                                    "field": "bits_per_second",
+                                    "input": {
+                                        "$first":
+                                        {
+                                            "$getField": {
+                                                "field": "streams",
+                                                "input": {"$first": "$out.client.intervals"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "stddev_goodput": {
+                            "$stdDevPop": {
+                                "$getField": {
+                                    "field": "bits_per_second",
+                                    "input": {
+                                        "$first":
+                                        {
+                                            "$getField": {
+                                                "field": "streams",
+                                                "input": {"$first": "$out.client.intervals"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]",
+            "x-axis": "btl_bw",
+            "y-axis": ["rtt"],
+            "error-bar": ["rttvar"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                { "$match": {"tester.environ.name": "scenario1"} },
+                {
+                    "$addFields": {
+                        "rtt": {
+                            "$getField": {
+                                "field": "rtt",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "rttvar": {
+                            "$getField": {
+                                "field": "rttvar",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "rtt": {"$avg": "$rtt"},
+                        "rttvar": {"$avg": "$rttvar"}
+                    }
+                }
+            ]
+        },
+        {
+          "type": "simple",
+          "title": "No. ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "x-axis": "btl_bw",
+          "y-axis": ["ecn_marks"],
+          "error-bar": ["stddev_ecn_marks"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            { "$match": {"tester.environ.name": "scenario1"} },
+            { "$match": {"$not": {"tester.environ.algorithm": "prague"}} },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "eth2"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
+              }
+            }
+          ]
+        },
+        {
+          "type": "simple",
+          "title": "No. Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "x-axis": "btl_bw",
+          "y-axis": ["drops"],
+          "error-bar": ["stddev_drops"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            { "$match": {"tester.environ.name": "scenario1"} },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "eth2"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "drops": {"$avg": "$eth2.drops"},
+                "stddev_drops": {"$stdDevPop": "$eth2.drops"}
+              }
+            }
+          ]
+        },
+        {
+            "type": "simple",
             "title": "Goodput of classic vs. L4S-based CCs with varying buffer lengths [bps]",
-            "x-axis": "packet_limit",
+            "x-axis": "queue_size",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
             "group-by": ["algorithm"],
@@ -56,12 +267,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "packet_limit": "$tester.environ.packet_limit", "algorithm": "$tester.environ.algorithm"
+                            "queue_size": "$tester.environ.queue_size", "algorithm": "$tester.environ.algorithm"
                         },
 
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
-                        "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                        "queue_size": {"$first": "$tester.environ.queue_size"},
 
                         "goodput": {
                             "$avg": {
@@ -102,7 +313,7 @@
         {
             "type": "simple",
             "title": "RTTs of classic vs. L4S-based CCs with varying buffer lengths [us]",
-            "x-axis": "packet_limit",
+            "x-axis": "queue_size",
             "y-axis": ["rtt"],
             "error-bar": ["stddev_rtt"],
             "group-by": ["algorithm"],
@@ -128,12 +339,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "packet_limit": "$tester.environ.packet_limit",
+                            "queue_size": "$tester.environ.queue_size",
                             "algorithm": "$tester.environ.algorithm"
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
-                        "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                        "queue_size": {"$first": "$tester.environ.queue_size"},
                         "rtt": {"$avg": "$rtt"},
                         "stddev_rtt": {"$stdDevPop": "$rtt"}
                     }
@@ -143,7 +354,7 @@
         {
             "type": "simple",
             "title": "No. ECN-marked packets of classic vs. L4S-based CCs with varying buffer lengths",
-            "x-axis": "packet_limit",
+            "x-axis": "queue_size",
             "y-axis": ["ecn_marks"],
             "error-bar": ["stddev_ecn_marks"],
             "group-by": ["algorithm"],
@@ -170,12 +381,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "packet_limit": "$tester.environ.packet_limit",
+                            "queue_size": "$tester.environ.queue_size",
                             "algorithm": "$tester.environ.algorithm"
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
-                        "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                        "queue_size": {"$first": "$tester.environ.queue_size"},
                         "ecn_marks": {"$avg": "$eth2.ecn_mark"},
                         "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
                     }
@@ -185,7 +396,7 @@
         {
             "type": "simple",
             "title": "No. Dropped packets of classic vs. L4S-based CCs with varying buffer lengths",
-            "x-axis": "packet_limit",
+            "x-axis": "queue_size",
             "y-axis": ["drops"],
             "error-bar": ["stddev_drops"],
             "group-by": ["algorithm"],
@@ -212,12 +423,12 @@
                 {
                     "$group": {
                         "_id": {
-                            "packet_limit": "$tester.environ.packet_limit",
+                            "queue_size": "$tester.environ.queue_size",
                             "algorithm": "$tester.environ.algorithm"
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
-                        "packet_limit": {"$first": "$tester.environ.packet_limit"},
+                        "queue_size": {"$first": "$tester.environ.queue_size"},
                         "drops": {"$avg": "$eth2.drops"},
                         "stddev_drops": {"$stdDevPop": "$eth2.drops"}
                     }
