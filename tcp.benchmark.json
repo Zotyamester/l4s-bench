@@ -8,7 +8,7 @@
                     "name": "scenario1",
                     "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                     "algorithm": ["new-reno", "cubic", "bbr", "prague"],
-                    "repeat": [1]
+                    "repeat": [1, 2, 3, 4, 5]
                 },
                 "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw"
             }
