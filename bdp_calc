@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+
+import sys
+import math
+
+USAGE = """Usage: bdp_calc <bandwidth_in_Mbps> <rtt_in_ms>
+
+    Calculates the bandwidth-delay product expressed in bytes.
+    If the value would be fractional, it is rounded up to the next smallest integer."""
+
+try:
+    if len(sys.argv) != 3:
+        raise ValueError("Invalid argument count")
+    bw_in_Mbps = float(sys.argv[1])
+    rtt_in_ms = float(sys.argv[2])
+except ValueError:
+    print(USAGE)
+    sys.exit(1)
+
+bw_in_Bps = bw_in_Mbps * 1e6 / 8
+rtt_in_s = rtt_in_ms / 1e3
+
+bdp_in_bytes = bw_in_Bps * rtt_in_s
+bdp = math.ceil(bdp_in_bytes)
+print(bdp)
