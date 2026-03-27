@@ -52,8 +52,8 @@
     },
     "report" : {
         "type": "presentation",
-        "title": "Demo for report-type 'presentation'",
-        "author":  "each plot is a separate beamer frame"
+        "title": "L4S for QUIC benchmark (testing QUIC CCAs)",
+        "author":  "Zoltán Szatmáry"
     },
     "visualize": [
         {
