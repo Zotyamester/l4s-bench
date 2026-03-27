@@ -22,6 +22,13 @@ class Endpoint(Node):
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
+        self.cmd(f"sysctl -w net.core.rmem_max={134217728}")
+        self.cmd(f"sysctl -w net.core.wmem_max={134217728}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_rmem={4096} {87380} {134217728}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_wmem={4096} {87380} {134217728}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_adv_win_scale={1}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_window_scaling={1}")
+        self.cmd(f"sysctl -w net.ipv4.tcp_workaround_signed_windows={0}")
 
 
 class DualPI2Router(Node):
@@ -141,7 +148,7 @@ def iperf(net: Mininet, algorithm: str) -> dict:
         f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
-        f"       --time {10}"
+        f"       --time {60}"
         f"       --interval {1}"
     )
 
