@@ -36,6 +36,7 @@ class DualPI2Router(Node):
         self,
         btl_bw: int,
         rtt: int,
+        use_dualpi2: bool = True,
         manual_override: str = "",
         **kwargs
     ):
@@ -56,23 +57,24 @@ class DualPI2Router(Node):
             f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
         )
 
-        bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
-        rtt_in_s = rtt / 1e3  # ms to s conversion
-
-        # BDP [B] = BW [Bps] * RTT [s]
-        bdp = int(bw_in_Bps * rtt_in_s)
-
-        self.cmd(
-            f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 " +
-            (
-                manual_override if manual_override != "" else
-                f" memlimit {bdp}"
-                f" typical_rtt {rtt}ms"
-                f" target {1000}"  # us
-            )
-        )
-
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
+
+        if use_dualpi2:
+            bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
+            rtt_in_s = rtt / 1e3  # ms to s conversion
+
+            # BDP [B] = BW [Bps] * RTT [s]
+            bdp = int(bw_in_Bps * rtt_in_s)
+
+            self.cmd(
+                f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 " +
+                (
+                    manual_override if manual_override != "" else
+                    f" memlimit {bdp}"
+                    f" typical_rtt {rtt}ms"
+                    f" target {1000}"  # us
+                )
+            )
 
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
@@ -185,6 +187,7 @@ def run(
     btl_bw: int,
     last_mile_delay: int,
     out_dir: str,
+    use_dualpi2: bool = True,
     override_dualpi2: str = "",
     benchmark: Callable[[Mininet, ...], dict] | None = None,
     **kwargs
@@ -204,7 +207,12 @@ def run(
 
     topo = L4STopo(
         endpoint_params=dict(),
-        router_params=dict(btl_bw=btl_bw, rtt=rtt, manual_override=override_dualpi2),
+        router_params=dict(
+            btl_bw=btl_bw,
+            rtt=rtt,
+            use_dualpi2=use_dualpi2,
+            manual_override=override_dualpi2
+        ),
         last_mile_delay=last_mile_delay,
     )
     net = Mininet(topo=topo, waitConnected=True, autoStaticArp=True)
@@ -264,6 +272,7 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
+    parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--override-dualpi2", type=str, default="")
 
     args = parser.parse_args()
@@ -279,5 +288,6 @@ if __name__ == "__main__":
     run(
         algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
         last_mile_delay=args.last_mile_delay, out_dir=args.out_dir,
+        use_dualpi2=args.dualpi2,
         override_dualpi2=args.override_dualpi2, benchmark=benchmark,
     )

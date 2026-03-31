@@ -7,7 +7,50 @@
                 "environ": {
                     "name": "scenario1",
                     "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                    "delay": 50,
+                    "delay": 15,
+                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "repeat": [1, 2, 3]
+                },
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay"
+            }
+        },
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario3",
+                    "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "delay": 15,
+                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "repeat": [1, 2, 3]
+                },
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay --no-dualpi2"
+            }
+        },
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario3",
+                    "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "delay": 15,
+                    "algorithm": ["reno", "cubic", "bbr", "prague"],
+                    "repeat": [1, 2, 3]
+                },
+                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay --override-dualpi2 ' '"
+            }
+        },
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario2",
+                    "btl_bw": [100],
+                    "delay": 15,
+                    "queue_size": [125],
                     "algorithm": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3]
                 },
@@ -20,24 +63,9 @@
                 "type": "generic",
                 "environ": {
                     "name": "scenario2",
-                    "btl_bw": [10],
-                    "delay": 50,
-                    "queue_size": [0],
-                    "algorithm": ["reno", "cubic", "bbr", "prague"],
-                    "repeat": [1, 2, 3]
-                },
-                "script": "/vagrant/net.py --out-dir $PWD --tcp-benchmark --algorithm $algorithm --bottleneck-bandwidth $btl_bw --last-mile-delay $delay"
-            }
-        },
-        {
-            "scale": "joint",
-            "tester": {
-                "type": "generic",
-                "environ": {
-                    "name": "scenario2",
-                    "btl_bw": [10],
-                    "delay": 50,
-                    "queue_size": [110, 120, 130, 140, 150, 160, 166, 170, 180, 190, 200, 210],
+                    "btl_bw": [100],
+                    "delay": 15,
+                    "queue_size": [20, 40, 60, 80, 100, 120, 140, 160, 180, 200],
                     "algorithm": ["reno", "cubic", "bbr", "prague"],
                     "repeat": [1, 2, 3]
                 },
@@ -195,6 +223,175 @@
           "group-by": ["algorithm"],
           "aggregate": [
             { "$match": {"tester.environ.name": "scenario1"} },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "eth2"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "drops": {"$avg": "$eth2.drops"},
+                "stddev_drops": {"$stdDevPop": "$eth2.drops"}
+              }
+            }
+          ]
+        },
+        {
+            "type": "simple",
+            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "x-axis": "btl_bw",
+            "y-axis": ["goodput"],
+            "error-bar": ["stddev_goodput"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                {
+                    "$match": {
+                        "tester.environ.name": "scenario3"
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw", "algorithm": "$tester.environ.algorithm"
+                        },
+
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+
+                        "goodput": {"$avg": "$out.client.end.sum_received.bits_per_second"},
+                        "stddev_goodput": {"$stdDevPop": "$out.client.end.sum_received.bits_per_second"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]",
+            "x-axis": "btl_bw",
+            "y-axis": ["rtt"],
+            "error-bar": ["rttvar"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                { "$match": {"tester.environ.name": "scenario3"} },
+                {
+                    "$addFields": {
+                        "rtt": {
+                            "$getField": {
+                                "field": "rtt",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "rttvar": {
+                            "$getField": {
+                                "field": "rttvar",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "rtt": {"$avg": "$rtt"},
+                        "rttvar": {"$avg": "$rttvar"}
+                    }
+                }
+            ]
+        },
+        {
+          "type": "simple",
+          "title": "\\# ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "x-axis": "btl_bw",
+          "y-axis": ["ecn_marks"],
+          "error-bar": ["stddev_ecn_marks"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            {
+                "$match": {"tester.environ.name": "scenario3"}
+            },
+            {
+              "$addFields": {
+                "eth2": {
+                  "$first": {
+                    "$filter": {
+                      "input": "$out.router",
+                      "as": "this",
+                      "cond": {
+                        "$and": [
+                          {"$eq": ["$$this.kind", "dualpi2"]},
+                          {"$eq": ["$$this.dev", "eth2"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": {
+                  "btl_bw": "$tester.environ.btl_bw",
+                  "algorithm": "$tester.environ.algorithm"
+                },
+                "null": 0,
+                "algorithm": {"$first": "$tester.environ.algorithm"},
+                "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
+              }
+            }
+          ]
+        },
+        {
+          "type": "simple",
+          "title": "\\# Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
+          "x-axis": "btl_bw",
+          "y-axis": ["drops"],
+          "error-bar": ["stddev_drops"],
+          "group-by": ["algorithm"],
+          "aggregate": [
+            { "$match": {"tester.environ.name": "scenario3"} },
             {
               "$addFields": {
                 "eth2": {
