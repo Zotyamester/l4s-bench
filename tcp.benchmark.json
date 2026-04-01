@@ -33,7 +33,7 @@
             "tester": {
                 "type": "generic",
                 "environ": {
-                    "name": "scenario3",
+                    "name": "scenario4",
                     "btl_bw": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                     "delay": 15,
                     "algorithm": ["reno", "cubic", "bbr", "prague"],
@@ -89,7 +89,7 @@
     "visualize": [
         {
             "type": "simple",
-            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "title": "1) Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]: delay={delay} queue\\_size=BDP",
             "x-axis": "btl_bw",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
@@ -109,6 +109,7 @@
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
                         "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
 
                         "goodput": {"$avg": "$out.client.end.sum_received.bits_per_second"},
                         "stddev_goodput": {"$stdDevPop": "$out.client.end.sum_received.bits_per_second"}
@@ -118,7 +119,7 @@
         },
         {
             "type": "simple",
-            "title": "RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]",
+            "title": "1) RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]: delay={delay} queue\\_size=BDP",
             "x-axis": "btl_bw",
             "y-axis": ["rtt"],
             "error-bar": ["rttvar"],
@@ -164,6 +165,7 @@
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
                         "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "rtt": {"$avg": "$rtt"},
                         "rttvar": {"$avg": "$rttvar"}
                     }
@@ -171,94 +173,269 @@
             ]
         },
         {
-          "type": "simple",
-          "title": "\\# ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
-          "x-axis": "btl_bw",
-          "y-axis": ["ecn_marks"],
-          "error-bar": ["stddev_ecn_marks"],
-          "group-by": ["algorithm"],
-          "aggregate": [
-            {
-                "$match": {"tester.environ.name": "scenario1"}
-            },
-            {
-              "$addFields": {
-                "eth2": {
-                  "$first": {
-                    "$filter": {
-                      "input": "$out.router",
-                      "as": "this",
-                      "cond": {
-                        "$and": [
-                          {"$eq": ["$$this.kind", "dualpi2"]},
-                          {"$eq": ["$$this.dev", "eth2"]}
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            {
-              "$group": {
-                "_id": {
-                  "btl_bw": "$tester.environ.btl_bw",
-                  "algorithm": "$tester.environ.algorithm"
+            "type": "simple",
+            "title": "1) \\# ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["ecn_marks"],
+            "error-bar": ["stddev_ecn_marks"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                {
+                    "$match": {"tester.environ.name": "scenario1"}
                 },
-                "null": 0,
-                "algorithm": {"$first": "$tester.environ.algorithm"},
-                "btl_bw": {"$first": "$tester.environ.btl_bw"},
-                "ecn_marks": {"$avg": "$eth2.ecn_mark"},
-                "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
-              }
-            }
-          ]
-        },
-        {
-          "type": "simple",
-          "title": "\\# Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths",
-          "x-axis": "btl_bw",
-          "y-axis": ["drops"],
-          "error-bar": ["stddev_drops"],
-          "group-by": ["algorithm"],
-          "aggregate": [
-            { "$match": {"tester.environ.name": "scenario1"} },
-            {
-              "$addFields": {
-                "eth2": {
-                  "$first": {
-                    "$filter": {
-                      "input": "$out.router",
-                      "as": "this",
-                      "cond": {
-                        "$and": [
-                          {"$eq": ["$$this.kind", "dualpi2"]},
-                          {"$eq": ["$$this.dev", "eth2"]}
-                        ]
-                      }
+                {
+                    "$addFields": {
+                        "eth2": {
+                            "$first": {
+                                "$filter": {
+                                    "input": "$out.router",
+                                    "as": "this",
+                                    "cond": {
+                                        "$and": [
+                                            {"$eq": ["$$this.kind", "dualpi2"]},
+                                            {"$eq": ["$$this.dev", "eth2"]}
+                                        ]
+                                    }
+                                }
+                            }
+                        }
                     }
-                  }
-                }
-              }
-            },
-            {
-              "$group": {
-                "_id": {
-                  "btl_bw": "$tester.environ.btl_bw",
-                  "algorithm": "$tester.environ.algorithm"
                 },
-                "null": 0,
-                "algorithm": {"$first": "$tester.environ.algorithm"},
-                "btl_bw": {"$first": "$tester.environ.btl_bw"},
-                "drops": {"$avg": "$eth2.drops"},
-                "stddev_drops": {"$stdDevPop": "$eth2.drops"}
-              }
-            }
-          ]
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+                        "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                        "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
+                    }
+                }
+            ]
         },
         {
             "type": "simple",
-            "title": "Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]",
+            "title": "1) \\# Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["drops"],
+            "error-bar": ["stddev_drops"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                { "$match": {"tester.environ.name": "scenario1"} },
+                {
+                    "$addFields": {
+                        "eth2": {
+                            "$first": {
+                                "$filter": {
+                                    "input": "$out.router",
+                                    "as": "this",
+                                    "cond": {
+                                        "$and": [
+                                            {"$eq": ["$$this.kind", "dualpi2"]},
+                                            {"$eq": ["$$this.dev", "eth2"]}
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+                        "drops": {"$avg": "$eth2.drops"},
+                        "stddev_drops": {"$stdDevPop": "$eth2.drops"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "4) Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["goodput"],
+            "error-bar": ["stddev_goodput"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                {
+                    "$match": {
+                        "tester.environ.name": "scenario4"
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw", "algorithm": "$tester.environ.algorithm"
+                        },
+
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+
+                        "goodput": {"$avg": "$out.client.end.sum_received.bits_per_second"},
+                        "stddev_goodput": {"$stdDevPop": "$out.client.end.sum_received.bits_per_second"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "4) RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["rtt"],
+            "error-bar": ["rttvar"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                { "$match": {"tester.environ.name": "scenario4"} },
+                {
+                    "$addFields": {
+                        "rtt": {
+                            "$getField": {
+                                "field": "rtt",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "rttvar": {
+                            "$getField": {
+                                "field": "rttvar",
+                                "input": {
+                                    "$first": {
+                                        "$getField": {
+                                            "field": "streams",
+                                            "input": {"$first": "$out.client.intervals"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+                        "rtt": {"$avg": "$rtt"},
+                        "rttvar": {"$avg": "$rttvar"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "4) \\# ECN-marked packets of classic vs. L4S-based CCs with varying bottleneck bandwidths: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["ecn_marks"],
+            "error-bar": ["stddev_ecn_marks"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                {
+                    "$match": {"tester.environ.name": "scenario4"}
+                },
+                {
+                    "$addFields": {
+                        "eth2": {
+                            "$first": {
+                                "$filter": {
+                                    "input": "$out.router",
+                                    "as": "this",
+                                    "cond": {
+                                        "$and": [
+                                            {"$eq": ["$$this.kind", "dualpi2"]},
+                                            {"$eq": ["$$this.dev", "eth2"]}
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+                        "ecn_marks": {"$avg": "$eth2.ecn_mark"},
+                        "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "4) \\# Dropped packets of classic vs. L4S-based CCs with varying bottleneck bandwidths: delay={delay} queue\\_size=BDP",
+            "x-axis": "btl_bw",
+            "y-axis": ["drops"],
+            "error-bar": ["stddev_drops"],
+            "group-by": ["algorithm"],
+            "aggregate": [
+                { "$match": {"tester.environ.name": "scenario4"} },
+                {
+                    "$addFields": {
+                        "eth2": {
+                            "$first": {
+                                "$filter": {
+                                    "input": "$out.router",
+                                    "as": "this",
+                                    "cond": {
+                                        "$and": [
+                                            {"$eq": ["$$this.kind", "dualpi2"]},
+                                            {"$eq": ["$$this.dev", "eth2"]}
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "btl_bw": "$tester.environ.btl_bw",
+                            "algorithm": "$tester.environ.algorithm"
+                        },
+                        "null": 0,
+                        "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
+                        "drops": {"$avg": "$eth2.drops"},
+                        "stddev_drops": {"$stdDevPop": "$eth2.drops"}
+                    }
+                }
+            ]
+        },
+        {
+            "type": "simple",
+            "title": "3) Goodput of classic vs. L4S-based CCs with varying bottleneck bandwidths [bps]: delay={delay}",
             "x-axis": "btl_bw",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
@@ -278,6 +455,7 @@
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
                         "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
 
                         "goodput": {"$avg": "$out.client.end.sum_received.bits_per_second"},
                         "stddev_goodput": {"$stdDevPop": "$out.client.end.sum_received.bits_per_second"}
@@ -287,7 +465,7 @@
         },
         {
             "type": "simple",
-            "title": "RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]",
+            "title": "3) RTTs of classic vs. L4S-based CCs with varying bottleneck bandwidths [us]: delay={delay}",
             "x-axis": "btl_bw",
             "y-axis": ["rtt"],
             "error-bar": ["rttvar"],
@@ -333,6 +511,7 @@
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
                         "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "rtt": {"$avg": "$rtt"},
                         "rttvar": {"$avg": "$rttvar"}
                     }
@@ -341,7 +520,7 @@
         },
         {
             "type": "simple",
-            "title": "Goodput of classic vs. L4S-based CCs with varying queue sizes [bps]",
+            "title": "2) Goodput of classic vs. L4S-based CCs with varying queue sizes [bps]: bw={btl_bw}, delay={delay}",
             "x-axis": "queue_size",
             "y-axis": ["goodput"],
             "error-bar": ["stddev_goodput"],
@@ -360,6 +539,8 @@
 
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "queue_size": {"$first": "$tester.environ.queue_size"},
 
                         "goodput": {"$avg": "$out.client.end.sum_received.bits_per_second"},
@@ -370,7 +551,7 @@
         },
         {
             "type": "simple",
-            "title": "RTTs of classic vs. L4S-based CCs with varying queue sizes [us]",
+            "title": "2) RTTs of classic vs. L4S-based CCs with varying queue sizes [us]: bw={btl_bw}, delay={delay}",
             "x-axis": "queue_size",
             "y-axis": ["rtt"],
             "error-bar": ["rttvar"],
@@ -415,6 +596,8 @@
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "queue_size": {"$first": "$tester.environ.queue_size"},
                         "rtt": {"$avg": "$rtt"},
                         "rttvar": {"$avg": "$rttvar"}
@@ -424,7 +607,7 @@
         },
         {
             "type": "simple",
-            "title": "\\# ECN-marked packets of classic vs. L4S-based CCs with varying queue sizes",
+            "title": "2) \\# ECN-marked packets of classic vs. L4S-based CCs with varying queue sizes: bw={btl_bw}, delay={delay}",
             "x-axis": "queue_size",
             "y-axis": ["ecn_marks"],
             "error-bar": ["stddev_ecn_marks"],
@@ -459,6 +642,8 @@
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "queue_size": {"$first": "$tester.environ.queue_size"},
                         "ecn_marks": {"$avg": "$eth2.ecn_mark"},
                         "stddev_ecn_marks": {"$stdDevPop": "$eth2.ecn_mark"}
@@ -468,7 +653,7 @@
         },
         {
             "type": "simple",
-            "title": "\\# Dropped packets of classic vs. L4S-based CCs with varying queue sizes",
+            "title": "2) \\# Dropped packets of classic vs. L4S-based CCs with varying queue sizes: bw={btl_bw}, delay={delay}",
             "x-axis": "queue_size",
             "y-axis": ["drops"],
             "error-bar": ["stddev_drops"],
@@ -501,6 +686,8 @@
                         },
                         "null": 0,
                         "algorithm": {"$first": "$tester.environ.algorithm"},
+                        "btl_bw": {"$first": "$tester.environ.btl_bw"},
+                        "delay": {"$first": "$tester.environ.delay"},
                         "queue_size": {"$first": "$tester.environ.queue_size"},
                         "drops": {"$avg": "$eth2.drops"},
                         "stddev_drops": {"$stdDevPop": "$eth2.drops"}
