@@ -150,7 +150,7 @@ def iperf(net: Mininet, algorithm: str) -> dict:
         f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
-        f"       --time {60}"
+        f"       --time {15}"
         f"       --interval {1}"
     )
 
@@ -172,12 +172,10 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
         f"       --json -"
-        f"       --duration {10}"
+        f"       --duration {15}"
         f"       --interval {1}"
         f"       h2:{4433} 2> /dev/null"
     ).splitlines()[-1]
-
-    info(f"{client_output}\n")
 
     return json.loads(client_output)
 
