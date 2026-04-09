@@ -38,7 +38,7 @@ class DualPI2Router(Node):
         rtt: int,
         use_dualpi2: bool = True,
         manual_override: str = "",
-        **kwargs
+        **kwargs,
     ):
         super().config(**kwargs)
 
@@ -46,12 +46,8 @@ class DualPI2Router(Node):
 
         intf = "eth2"
 
-        self.cmd(
-            f"ethtool -K {intf} tso off gso off gro off lro off"
-        )
-        self.cmd(
-            f"tc qdisc replace dev {intf} root handle 1: htb default 10"
-        )
+        self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
+        self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
             f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
@@ -67,10 +63,11 @@ class DualPI2Router(Node):
             bdp = int(bw_in_Bps * rtt_in_s)
 
             self.cmd(
-                f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 " +
-                (
-                    manual_override if manual_override != "" else
-                    f" memlimit {bdp}"
+                f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 "
+                + (
+                    manual_override
+                    if manual_override != ""
+                    else f" memlimit {bdp}"
                     f" typical_rtt {rtt}ms"
                     f" target {1000}"  # us
                 )
@@ -86,11 +83,15 @@ class L4STopo(Topo):
     switch (`si`) connected to a handful (see `n_host`) of hosts (`hi`).
     """
 
-    def __init__(self, n_net: int = 2, n_host: int = 1,
-                 endpoint_params: dict | None = None,
-                 router_params: dict | None = None,
-                 last_mile_delay: int = 5,
-                 **kwargs):
+    def __init__(
+        self,
+        n_net: int = 2,
+        n_host: int = 1,
+        endpoint_params: dict | None = None,
+        router_params: dict | None = None,
+        last_mile_delay: int = 5,
+        **kwargs,
+    ):
         self.n_net = n_net
         self.n_host = n_host
         self.endpoint_params = endpoint_params or {}
@@ -113,7 +114,7 @@ class L4STopo(Topo):
             f"r{0}",
             cls=DualPI2Router,
             ip=nets[0][0].with_prefixlen,
-            **self.router_params
+            **self.router_params,
         )  # specify the first subnet's first IP address in the `ip` param
 
         for i, (r0_i_ip, hi_ip, *_) in enumerate(nets, start=1):
@@ -134,30 +135,29 @@ class L4STopo(Topo):
                 cls=Endpoint,
                 ip=hi_ip.with_prefixlen,
                 defaultRoute=f"via {r0_i_ip.ip}",
-                **self.endpoint_params
+                **self.endpoint_params,
             )
 
             self.addLink(hi, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
-def iperf(net: Mininet, algorithm: str) -> dict:
+def iperf(net: Mininet, algorithm: str, duration: int) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
-    h2.cmd(
-        "iperf3 --server &"
-    )
+    h2.cmd("( iperf3 --server & )")
     client_output = h1.cmd(
+        f"( tcpdump -i h1-eth0 -w /tmp/h1.pcap &>/dev/null & ); "
         f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
-        f"       --time {15}"
+        f"       --time {duration}"
         f"       --interval {1}"
     )
 
     return json.loads(client_output)
 
 
-def quinn_perf(net: Mininet, algorithm: str) -> dict:
+def quinn_perf(net: Mininet, algorithm: str, duration: int) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
@@ -172,7 +172,7 @@ def quinn_perf(net: Mininet, algorithm: str) -> dict:
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
         f"       --json -"
-        f"       --duration {15}"
+        f"       --duration {duration}"
         f"       --interval {1}"
         f"       h2:{4433} 2> /dev/null"
     ).splitlines()[-1]
@@ -187,8 +187,9 @@ def run(
     out_dir: str,
     use_dualpi2: bool = True,
     override_dualpi2: str = "",
-    benchmark: Callable[[Mininet, ...], dict] | None = None,
-    **kwargs
+    benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
+    measurement_duration: int = 15,
+    **kwargs,
 ):
     """
     Setup the `L4STopology` with the specified parameters and benchmark the
@@ -209,7 +210,7 @@ def run(
             btl_bw=btl_bw,
             rtt=rtt,
             use_dualpi2=use_dualpi2,
-            manual_override=override_dualpi2
+            manual_override=override_dualpi2,
         ),
         last_mile_delay=last_mile_delay,
     )
@@ -220,7 +221,7 @@ def run(
         if benchmark:
             info("*** Starting benchmark\n")
 
-            client_result = benchmark(net, algorithm)
+            client_result = benchmark(net, algorithm, measurement_duration)
 
             r0 = net["r0"]
             r0_output = r0.cmd("tc -j -s qdisc show")
@@ -252,14 +253,14 @@ if __name__ == "__main__":
         action=BooleanOptionalAction,
         default=False,
         help="Perform QUIC benchmarks on the topology instead of entering"
-             " to interactive CLI mode.",
+        " to interactive CLI mode.",
     )
     parser.add_argument(
         "--tcp-benchmark",
         action=BooleanOptionalAction,
         default=False,
         help="Perform TCP benchmarks on the topology instead of entering"
-             " to interactive CLI mode.",
+        " to interactive CLI mode.",
     )
     parser.add_argument(
         "--out-dir",
@@ -270,6 +271,7 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
+    parser.add_argument("--measurement-duration", type=int, default=15)
     parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--override-dualpi2", type=str, default="")
 
@@ -284,8 +286,12 @@ if __name__ == "__main__":
         benchmark = iperf
 
     run(
-        algorithm=args.algorithm, btl_bw=args.bottleneck_bandwidth,
-        last_mile_delay=args.last_mile_delay, out_dir=args.out_dir,
+        algorithm=args.algorithm,
+        btl_bw=args.bottleneck_bandwidth,
+        last_mile_delay=args.last_mile_delay,
+        out_dir=args.out_dir,
         use_dualpi2=args.dualpi2,
-        override_dualpi2=args.override_dualpi2, benchmark=benchmark,
+        override_dualpi2=args.override_dualpi2,
+        benchmark=benchmark,
+        measurement_duration=args.measurement_duration,
     )
