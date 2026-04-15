@@ -24,8 +24,8 @@ class Endpoint(Node):
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
         self.cmd(f"sysctl -w net.core.rmem_max={134217728}")
         self.cmd(f"sysctl -w net.core.wmem_max={134217728}")
-        self.cmd(f"sysctl -w net.ipv4.tcp_rmem={4096} {87380} {134217728}")
-        self.cmd(f"sysctl -w net.ipv4.tcp_wmem={4096} {87380} {134217728}")
+        self.cmd(f"sysctl -w 'net.ipv4.tcp_rmem={4096} {87380} {134217728}'")
+        self.cmd(f"sysctl -w 'net.ipv4.tcp_wmem={4096} {87380} {134217728}'")
         self.cmd(f"sysctl -w net.ipv4.tcp_adv_win_scale={1}")
         self.cmd(f"sysctl -w net.ipv4.tcp_window_scaling={1}")
         self.cmd(f"sysctl -w net.ipv4.tcp_workaround_signed_windows={0}")
@@ -51,6 +51,7 @@ class DualPI2Router(Node):
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
             f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
+            f"   burst {1}"
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -141,12 +142,12 @@ class L4STopo(Topo):
             self.addLink(hi, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
-def iperf(net: Mininet, algorithm: str, duration: int) -> dict:
+def iperf(net: Mininet, algorithm: str, duration: int, pcap_out_dir: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd("( iperf3 --server & )")
     client_output = h1.cmd(
-        f"( tcpdump -i h1-eth0 -w /tmp/h1.pcap &>/dev/null & ); "
+        f"( tcpdump -i h1-eth0 -w {pcap_out_dir}/h1.pcap &>/dev/null & ); "
         f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
@@ -157,7 +158,7 @@ def iperf(net: Mininet, algorithm: str, duration: int) -> dict:
     return json.loads(client_output)
 
 
-def quinn_perf(net: Mininet, algorithm: str, duration: int) -> dict:
+def quinn_perf(net: Mininet, algorithm: str, duration: int, _pcap_out_dir: str) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
@@ -221,7 +222,7 @@ def run(
         if benchmark:
             info("*** Starting benchmark\n")
 
-            client_result = benchmark(net, algorithm, measurement_duration)
+            client_result = benchmark(net, algorithm, measurement_duration, out_dir)
 
             r0 = net["r0"]
             r0_output = r0.cmd("tc -j -s qdisc show")
