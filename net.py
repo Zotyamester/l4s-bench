@@ -22,13 +22,6 @@ class Endpoint(Node):
         for intf in self.intfList():
             self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
         self.cmd(f"sysctl -w net.ipv4.tcp_ecn={3}")
-        self.cmd(f"sysctl -w net.core.rmem_max={134217728}")
-        self.cmd(f"sysctl -w net.core.wmem_max={134217728}")
-        self.cmd(f"sysctl -w 'net.ipv4.tcp_rmem={4096} {87380} {134217728}'")
-        self.cmd(f"sysctl -w 'net.ipv4.tcp_wmem={4096} {87380} {134217728}'")
-        self.cmd(f"sysctl -w net.ipv4.tcp_adv_win_scale={1}")
-        self.cmd(f"sysctl -w net.ipv4.tcp_window_scaling={1}")
-        self.cmd(f"sysctl -w net.ipv4.tcp_workaround_signed_windows={0}")
 
 
 class DualPI2Router(Node):
@@ -68,9 +61,11 @@ class DualPI2Router(Node):
                 + (
                     manual_override
                     if manual_override != ""
-                    else f" memlimit {bdp}"
-                    f" typical_rtt {rtt}ms"
-                    f" target {1000}"  # us
+                    else (
+                        f" memlimit {bdp}"
+                        f" typical_rtt {rtt}ms"
+                        f" target {1000}"  # us
+                    )
                 )
             )
 
@@ -142,23 +137,46 @@ class L4STopo(Topo):
             self.addLink(hi, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
-def iperf(net: Mininet, algorithm: str, duration: int, pcap_out_dir: str) -> dict:
+def iperf(
+    net: Mininet,
+    algorithm: str,
+    duration: int,
+    out_dir: str,
+    packet_capture: bool = False,
+    bpf: bool = False,
+) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
-    h2.cmd("( iperf3 --server & )")
+    h2.cmd("iperf3 --server --daemon")
     client_output = h1.cmd(
-        f"( tcpdump -i h1-eth0 -w {pcap_out_dir}/h1.pcap &>/dev/null & ); "
-        f"iperf3 --client {h2.IP()}"
+        (
+            f"( tcpdump -i h1-eth0 -w {out_dir}/h1.pcap &>/dev/null & ); "
+            if packet_capture
+            else ""
+        )
+        + (
+            f"""( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == 5201/ {{ printf("%llu %u %u\\n", nsecs, args->snd_cwnd, args->srtt); }}' > {out_dir}/h1-bpf.txt & ); """
+            if bpf
+            else ""
+        )
+        + f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
         f"       --time {duration}"
         f"       --interval {1}"
     )
 
+    info(f"{client_output}\n")
+
     return json.loads(client_output)
 
 
-def quinn_perf(net: Mininet, algorithm: str, duration: int, _pcap_out_dir: str) -> dict:
+def quinn_perf(
+    net: Mininet,
+    algorithm: str,
+    duration: int,
+    out_dir: str,
+) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
@@ -189,7 +207,7 @@ def run(
     use_dualpi2: bool = True,
     override_dualpi2: str = "",
     benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
-    measurement_duration: int = 15,
+    measurement_duration: int = 60,
     **kwargs,
 ):
     """
@@ -222,7 +240,9 @@ def run(
         if benchmark:
             info("*** Starting benchmark\n")
 
-            client_result = benchmark(net, algorithm, measurement_duration, out_dir)
+            client_result = benchmark(
+                net, algorithm, measurement_duration, out_dir, **kwargs
+            )
 
             r0 = net["r0"]
             r0_output = r0.cmd("tc -j -s qdisc show")
@@ -249,6 +269,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(
         description="A Mininet-based testbed for measuring L4S's performance."
     )
+    # Control parameters
     parser.add_argument(
         "--quic-benchmark",
         action=BooleanOptionalAction,
@@ -269,12 +290,16 @@ if __name__ == "__main__":
         default="/tmp",
         help="Dir to put results into / get logs from",
     )
+    # Testbed, network & endpoint parameters
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
-    parser.add_argument("--measurement-duration", type=int, default=15)
     parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--override-dualpi2", type=str, default="")
+    # Benchmark parameters
+    parser.add_argument("--measurement-duration", type=int, default=15)
+    parser.add_argument("--packet-capture", action=BooleanOptionalAction, default=True)
+    parser.add_argument("--bpf", action=BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
 
@@ -295,4 +320,6 @@ if __name__ == "__main__":
         override_dualpi2=args.override_dualpi2,
         benchmark=benchmark,
         measurement_duration=args.measurement_duration,
+        bpf=args.bpf,
+        packet_capture=args.packet_capture,
     )
