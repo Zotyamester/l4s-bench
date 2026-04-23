@@ -1,0 +1,40 @@
+{
+    "benchmark": [
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "dualpi2-bdp",
+                    "BW": [
+                        10,
+                        100,
+                        1000
+                    ],
+                    "RTT": 24,
+                    "CONGESTION": [
+                        "prague"
+                    ],
+                    "DURATION": 60,
+                    "repeat": [
+                        1
+                    ]
+                },
+                "script": "OUT=$PWD /vagrant/veth-test"
+            }
+        }
+    ],
+    "default": {
+        "scale": "outer",
+        "pipeline": {
+            "name": "none"
+        },
+        "sut": {
+            "type": "none"
+        },
+        "tester": {
+            "type": "generic"
+        },
+        "traffic": {}
+    }
+}
