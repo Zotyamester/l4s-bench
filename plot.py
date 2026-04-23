@@ -46,14 +46,23 @@ def plot_bpf(log_files: list[tuple[str, str]], output_file: str):
         with open(log_file, "r") as f:
             data = [line.split() for line in f.readlines()]
 
-        timestamp, cwnd, srtt = zip(
-            *((int(row[0]) / 1e9, int(row[1]), int(row[2]) / 1e3) for row in data)
+        timestamp, cwnd, inflight, srtt = zip(
+            *(
+                (
+                    int(row[0]) / 1e9,
+                    int(row[1]),
+                    (int(row[2]) - int(row[3])) / 1500,
+                    int(row[4]) / 1e3,
+                )
+                for row in data
+            )
         )
 
         # normalize timestamps to start from the first one
         timestamp = [ts - timestamp[0] for ts in timestamp]
 
-        ax[0].plot(timestamp, cwnd, label=label)
+        ax[0].plot(timestamp, cwnd, label=f"{label}-cwnd")
+        ax[0].plot(timestamp, inflight, label=f"{label}-inflight")
         ax[1].plot(timestamp, srtt, label=label)
 
     ax[0].set_ylabel("Congestion Window Size [packet]")
