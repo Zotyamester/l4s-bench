@@ -1,11 +1,15 @@
 #!/bin/bash
 
-# Bottleneck-bandwidth
-BW=${BW:-100}
+# Directory to save results to
+export OUT=${OUT:/tmp}
+# Bottleneck-bandwidth [Mbps]
+export BW=${BW:-100}
+# Round-trip time [ms] emulated at the sender's ingress
+export RTT=${RTT:-24}
 # Duration of iperf3 measurement
-DURATION=${DURATION:-60}
+export DURATION=${DURATION:-60}
 # Congestion control algorithm to use on the client
-CONGESTION=${CONGESTION:-prague}
+export CONGESTION=${CONGESTION:-prague}
 
 # Clean-up after interrupted benchmarks
 ip netns delete ns1 &>/dev/null
@@ -47,24 +51,43 @@ ip netns exec ns2 bash -c 'setup_veth veth2 10.0.0.2/30'
 # Configure queues on the sender
 setup_sender_queues () {
     local intf=$1
+
+    # Create bandwidth bottleneck by limiting bandwidth with HTB
     tc qdisc add dev veth1 root handle 1: htb default 10
     tc class add dev veth1 parent 1: classid 1:10 htb rate "${BW}mbit" ceil "${BW}mbit"
-    tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2
+
+    # Add DualPI2 queuing
+    bdp_in_pkts=$(printf '%.0f\n' `echo "$BW * 1000000 / 8 * $RTT / 1000 / 1500" | bc -l`)
+    tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2 limit $bdp_in_pkts
+
+    # Inserting artificial delay into the system to emulate real-world RTTs
+    ip link add dev ifb0 type ifb
+    ip link set dev ifb0 up
+    tc qdisc add dev veth1 ingress handle ffff:
+    tc filter add dev veth1 parent ffff: protocol all u32 match u32 0 0 action mirred egress redirect dev ifb0
+    tc qdisc add dev ifb0 root handle 2: netem delay "${RTT}ms"
 }
 export -f setup_sender_queues
 
 ip netns exec ns1 bash -c 'setup_sender_queues veth1'
+
+# Measure baseline RTT to check if netem is operational
+ip netns exec ns1 ping -c 3 10.0.0.2
 
 # Start iperf3 server in ns2
 ip netns exec ns2 iperf3 --server --daemon
 
 sleep 1
 
+# Start TCP CWND monitoring on the client
+mountpoint -q /sys/kernel/debug/ || mount -t debugfs none /sys/kernel/debug
+( bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == 5201/ { printf("%llu %u %u %u %u\n", nsecs, args->snd_cwnd, args->snd_nxt, args->snd_una, args->srtt); }' > $OUT/bpf.txt & )
+
 # Run iperf3 client in ns1
-ip netns exec ns1 iperf3 --client 10.0.0.2 --time "$DURATION" --congestion "$CONGESTION"
+ip netns exec ns1 iperf3 --client 10.0.0.2 --time "$DURATION" --congestion "$CONGESTION" --json | tee $OUT/iperf3.json | jq -C '[ .intervals[] | .streams[0] | { "rtt": .rtt, "bps": .bits_per_second } ]'
 
 # Print queues
-ip netns exec ns1 tc -s -d qdisc show dev veth1
+ip netns exec ns1 tc -s -j -d qdisc show dev veth1 | tee $OUT/queues.json | jq -C .
 
 # Happy path cleanup
 ip netns del ns1 &>/dev/null
