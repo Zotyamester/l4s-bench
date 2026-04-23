@@ -24,38 +24,48 @@ ip link add veth1 type veth peer name veth2
 ip link set veth1 netns ns1
 ip link set veth2 netns ns2
 
-# Configure IP addresses
-ip netns exec ns1 ip addr add 10.0.0.1/24 dev veth1
-ip netns exec ns2 ip addr add 10.0.0.2/24 dev veth2
+# Configure veth interfaces
+setup_veth () {
+    local intf=$1
+    local ip=$2
+    # Configure IP address
+    ip addr add $ip dev $intf
+    # Bring up interface
+    ip link set $intf up
+    # Disable offloading
+    ethtool -K $intf tso off gso off gro off lro off
+    # Enforce the use of ECT(1)
+    sysctl -qw net.ipv4.tcp_ecn=3
+    # Enforce the specified CCA
+    sysctl -qw "net.ipv4.tcp_congestion_control=$CONGESTION"
+}
+export -f setup_veth
 
-# Bring up interfaces
-ip netns exec ns1 ip link set veth1 up
-ip netns exec ns2 ip link set veth2 up
+ip netns exec ns1 bash -c 'setup_veth veth1 10.0.0.1/30'
+ip netns exec ns2 bash -c 'setup_veth veth2 10.0.0.2/30'
 
-# Disable offloading
-ip netns exec ns1 ethtool -K veth1 tso off gso off gro off lro off
-ip netns exec ns2 ethtool -K veth2 tso off gso off gro off lro off
+# Configure queues on the sender
+setup_sender_queues () {
+    local intf=$1
+    tc qdisc add dev veth1 root handle 1: htb default 10
+    tc class add dev veth1 parent 1: classid 1:10 htb rate "${BW}mbit" ceil "${BW}mbit"
+    tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2
+}
+export -f setup_sender_queues
 
-# Set up HTB with DualPI2 on ns1
-ip netns exec ns1 tc qdisc add dev veth1 root handle 1: htb default 10
-ip netns exec ns1 tc class add dev veth1 parent 1: classid 1:10 htb rate "${BW}mbit" ceil "${BW}mbit"
-ip netns exec ns1 tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2
+ip netns exec ns1 bash -c 'setup_sender_queues veth1'
 
 # Start iperf3 server in ns2
-ip netns exec ns2 sysctl -qw net.ipv4.tcp_ecn=3
-ip netns exec ns2 sysctl -qw "net.ipv4.tcp_congestion_control=$CONGESTION"
 ip netns exec ns2 iperf3 --server --daemon
 
 sleep 1
 
 # Run iperf3 client in ns1
-ip netns exec ns1 sysctl -qw net.ipv4.tcp_ecn=3
-ip netns exec ns1 sysctl -qw "net.ipv4.tcp_congestion_control=$CONGESTION"
 ip netns exec ns1 iperf3 --client 10.0.0.2 --time "$DURATION" --congestion "$CONGESTION"
 
 # Print queues
 ip netns exec ns1 tc -s -d qdisc show dev veth1
 
-# Cleanup
-ip netns del ns1
-ip netns del ns2
+# Happy path cleanup
+ip netns del ns1 &>/dev/null
+ip netns del ns2 &>/dev/null
