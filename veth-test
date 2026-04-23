@@ -1,10 +1,17 @@
 #!/bin/bash
 
-set -e
-
+# Bottleneck-bandwidth
 BW=${BW:-100}
+# Duration of iperf3 measurement
 DURATION=${DURATION:-60}
+# Congestion control algorithm to use on the client
 CONGESTION=${CONGESTION:-prague}
+
+# Clean-up after interrupted benchmarks
+ip netns delete ns1 &>/dev/null
+ip netns delete ns2 &>/dev/null
+
+set -e
 
 # Create network namespaces
 ip netns add ns1
@@ -13,7 +20,7 @@ ip netns add ns2
 # Create veth pair
 ip link add veth1 type veth peer name veth2
 
-# Move interfaces to namespaces
+# Move interfaces to their namespaces
 ip link set veth1 netns ns1
 ip link set veth2 netns ns2
 
@@ -31,24 +38,23 @@ ip netns exec ns2 ethtool -K veth2 tso off gso off gro off lro off
 
 # Set up HTB with DualPI2 on ns1
 ip netns exec ns1 tc qdisc add dev veth1 root handle 1: htb default 10
-ip netns exec ns1 tc class add dev veth1 parent 1: classid 1:10 htb rate "${BW}mbit" ceil "${BW}mbit" burst 1
+ip netns exec ns1 tc class add dev veth1 parent 1: classid 1:10 htb rate "${BW}mbit" ceil "${BW}mbit"
 ip netns exec ns1 tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2
 
 # Start iperf3 server in ns2
 ip netns exec ns2 sysctl -qw net.ipv4.tcp_ecn=3
+ip netns exec ns2 sysctl -qw "net.ipv4.tcp_congestion_control=$CONGESTION"
 ip netns exec ns2 iperf3 --server --daemon
 
 sleep 1
 
 # Run iperf3 client in ns1
 ip netns exec ns1 sysctl -qw net.ipv4.tcp_ecn=3
-ip netns exec ns1 iperf3 --client 10.0.0.2 --time "$DURATION" --congestion "$CONGESTION" --json \
- | jq '[ .intervals[] | .streams[0] | { "time": .start, "cwnd": .snd_cwnd, "goodput": .bits_per_second, "rtt": .rtt } ]' \
- > "/vagrant/cwnd-${CONGESTION}.json"
+ip netns exec ns1 sysctl -qw "net.ipv4.tcp_congestion_control=$CONGESTION"
+ip netns exec ns1 iperf3 --client 10.0.0.2 --time "$DURATION" --congestion "$CONGESTION"
 
 # Print queues
-ip netns exec ns1 tc -j -s qdisc show dev veth1 | jq '.[] | select(.handle == "20:")' \
- > "/vagrant/queue-${CONGESTION}.json"
+ip netns exec ns1 tc -s -d qdisc show dev veth1
 
 # Cleanup
 ip netns del ns1
