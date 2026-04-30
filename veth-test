@@ -59,7 +59,7 @@ setup_sender_queues () {
 
     # Add DualPI2 queuing
     bdp_in_pkts=$(printf '%.0f\n' `echo "$BW * 1000000 / 8 * $RTT / 1000 / 1500" | bc -l`)
-    tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2 limit $bdp_in_pkts
+    tc qdisc add dev veth1 parent 1:10 handle 20: dualpi2 limit $bdp_in_pkts typical_rtt "${RTT}ms"
 
     # Inserting artificial delay into the system to emulate real-world RTTs
     ip link add dev ifb0 type ifb
