@@ -39,7 +39,9 @@ def plot_cwnd_goodput_rtt(json_files: list[tuple[str, str]], output_file: str):
     fig.savefig(output_file)
 
 
-def plot_bpf(log_files: list[tuple[str, str]], output_file: str):
+def plot_bpf(
+    log_files: list[tuple[str, str]], output_file: str, show_inflight: bool = False
+):
     fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 
     for log_file, label in log_files:
@@ -51,8 +53,8 @@ def plot_bpf(log_files: list[tuple[str, str]], output_file: str):
                 (
                     int(row[0]) / 1e9,
                     int(row[1]),
-                    (int(row[2]) - int(row[3])) / 1500,
-                    int(row[4]) / 1e3,
+                    int(row[2]) / 1500,
+                    int(row[3]) / 1e3,
                 )
                 for row in data
             )
@@ -61,8 +63,9 @@ def plot_bpf(log_files: list[tuple[str, str]], output_file: str):
         # normalize timestamps to start from the first one
         timestamp = [ts - timestamp[0] for ts in timestamp]
 
-        ax[0].plot(timestamp, cwnd, label=f"{label}-cwnd")
-        ax[0].plot(timestamp, inflight, label=f"{label}-inflight")
+        ax[0].plot(timestamp, cwnd, label=f"{label}{'-cwnd' if show_inflight else ''}")
+        if show_inflight:
+            ax[0].plot(timestamp, inflight, label=f"{label}-inflight")
         ax[1].plot(timestamp, srtt, label=label)
 
     ax[0].set_ylabel("Congestion Window Size [packet]")
