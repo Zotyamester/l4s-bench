@@ -126,6 +126,13 @@ if __name__ == "__main__":
         help="Path to the JSON input file for JSON-based plotting.",
     )
     parser.add_argument(
+        "--show-inflight",
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Show number of inflight packets as a function of time when plotting based on BPF logs."
+        ),
+    )
+    parser.add_argument(
         "--log",
         dest="logs",
         action="append",

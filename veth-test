@@ -95,7 +95,7 @@ ip netns exec ns1 tc -s -j -d qdisc show dev veth1 | tee $OUT/queues.json | jq -
 # Save bpf trace
 mv "$trace_file" "$OUT/bpf.txt"
 # Generate plot from the trace
-/vagrant/plot.py --log "$OUT/bpf.txt:$CONGESTION" "$OUT/plot.png"
+/vagrant/plot.py --show-inflight --log "$OUT/bpf.txt:$CONGESTION" "$OUT/plot.png"
 
 # Happy path cleanup
 ip netns del ns1 &>/dev/null
