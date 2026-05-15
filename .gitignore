@@ -4,6 +4,14 @@ Makefile
 measurements/
 plots/
 
+# Other plots and measurement data
+iperf3.json
+queues.json
+quinn-perf.json
+bpf*.txt
+*.qlog
+*.png
+
 # Vagrant boxes
 *.box
 

@@ -44,7 +44,6 @@ class DualPI2Router(Node):
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
             f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
-            f"   burst {1}"
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -61,11 +60,7 @@ class DualPI2Router(Node):
                 + (
                     manual_override
                     if manual_override != ""
-                    else (
-                        f" memlimit {bdp}"
-                        f" typical_rtt {rtt}ms"
-                        f" target {1000}"  # us
-                    )
+                    else (f" memlimit {bdp}" f" typical_rtt {rtt}ms")
                 )
             )
 
@@ -155,7 +150,7 @@ def iperf(
             else ""
         )
         + (
-            f"""( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == 5201/ {{ printf("%llu %u %u\\n", nsecs, args->snd_cwnd, args->srtt); }}' > {out_dir}/h1-bpf.txt & ); """
+            f"( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == {5201}/ {{ printf(\"%llu %u %u %u %u\\n\", nsecs, args->snd_cwnd, args->snd_nxt, args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & );"
             if bpf
             else ""
         )
@@ -166,8 +161,6 @@ def iperf(
         f"       --interval {1}"
     )
 
-    info(f"{client_output}\n")
-
     return json.loads(client_output)
 
 
@@ -176,14 +169,15 @@ def quinn_perf(
     algorithm: str,
     duration: int,
     out_dir: str,
+    **kwargs,
 ) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
     h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
-        f"       --listen {h2.IP()}:{4433}"
         f"       --ecn l4s"
-        f"       --congestion {algorithm} &"
+        f"       --qlog '{out_dir}/h2.qlog'"
+        f"       --listen {h2.IP()}:{4433} &"
     )
     client_output = h1.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
@@ -191,12 +185,13 @@ def quinn_perf(
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
         f"       --json -"
+        f"       --qlog '{out_dir}/h1.qlog'"
         f"       --duration {duration}"
         f"       --interval {1}"
-        f"       h2:{4433} 2> /dev/null"
-    ).splitlines()[-1]
+        f"       h2:{4433}"
+    )
 
-    return json.loads(client_output)
+    return json.loads(client_output.splitlines()[-1])
 
 
 def run(
@@ -285,6 +280,13 @@ if __name__ == "__main__":
         " to interactive CLI mode.",
     )
     parser.add_argument(
+        "--custom-benchmark",
+        action=BooleanOptionalAction,
+        default=False,
+        help="Perform custom TCP benchmarks on the topology instead of entering"
+        " to interactive CLI mode.",
+    )
+    parser.add_argument(
         "--out-dir",
         type=str,
         default="/tmp",
@@ -298,7 +300,7 @@ if __name__ == "__main__":
     parser.add_argument("--override-dualpi2", type=str, default="")
     # Benchmark parameters
     parser.add_argument("--measurement-duration", type=int, default=15)
-    parser.add_argument("--packet-capture", action=BooleanOptionalAction, default=True)
+    parser.add_argument("--packet-capture", action=BooleanOptionalAction, default=False)
     parser.add_argument("--bpf", action=BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
