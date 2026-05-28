@@ -43,7 +43,7 @@ class DualPI2Router(Node):
         self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
-            f"   rate {btl_bw}mbit ceil {btl_bw}mbit"
+            f"   rate {btl_bw}mbit ceil {btl_bw}mbit burst 1"
         )
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
@@ -142,7 +142,7 @@ def iperf(
 ) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
-    h2.cmd("iperf3 --server --daemon")
+    _server_output = h2.cmd("iperf3 --server --daemon")
     client_output = h1.cmd(
         (
             f"( tcpdump -i h1-eth0 -w {out_dir}/h1.pcap &>/dev/null & ); "
@@ -157,6 +157,7 @@ def iperf(
         + f"iperf3 --client {h2.IP()}"
         f"       --congestion {algorithm}"
         f"       --json"
+        f"       --logfile '{out_dir}/h2.log'"
         f"       --time {duration}"
         f"       --interval {1}"
     )
@@ -173,7 +174,7 @@ def quinn_perf(
 ) -> dict:
     h1, h2 = net["h1"], net["h2"]
 
-    h2.cmd(
+    _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
         f"       --ecn l4s"
         f"       --qlog '{out_dir}/h2.qlog'"
@@ -277,13 +278,6 @@ if __name__ == "__main__":
         action=BooleanOptionalAction,
         default=False,
         help="Perform TCP benchmarks on the topology instead of entering"
-        " to interactive CLI mode.",
-    )
-    parser.add_argument(
-        "--custom-benchmark",
-        action=BooleanOptionalAction,
-        default=False,
-        help="Perform custom TCP benchmarks on the topology instead of entering"
         " to interactive CLI mode.",
     )
     parser.add_argument(
