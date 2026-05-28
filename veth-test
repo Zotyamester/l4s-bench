@@ -33,6 +33,7 @@ ip link set veth2 netns ns2
 setup_veth () {
     local intf=$1
     local ip=$2
+
     # Configure IP address
     ip addr add $ip dev $intf
     # Bring up interface
@@ -86,11 +87,16 @@ trace_file=$(mktemp)
 bpftrace -qe 'tracepoint:tcp:tcp_probe /args->sport == 1234/ { printf("%llu %u %u %u\n", nsecs, args->snd_cwnd, args->snd_nxt - args->snd_una, args->srtt); }' > "$trace_file" &
 BPF_PID=$!
 
+# Record queue stats in the background as a function of time (sampling in every 100 ms)
+> $OUT/queues.jsonl
+( while true; do echo "{\"time\": `date -u +%s%N`, \"queues\": `ip netns exec ns1 tc -s -j -d qdisc show dev veth1`}" >> "$OUT/queues.jsonl"; sleep 0.1; done ) &
+TC_LOOP_PID=$!
+
 # Run iperf3 client in ns1
-ip netns exec ns1 iperf3 --client 10.0.0.2 --cport 1234 --time "$DURATION" --congestion "$CONGESTION" --json | tee $OUT/iperf3.json | jq -C '[ .intervals[] | .streams[0] | { "rtt": .rtt, "bps": .bits_per_second } ]'
+ip netns exec ns1 iperf3 --client 10.0.0.2 --cport 1234 --time "$DURATION" --congestion "$CONGESTION" --json | tee "$OUT/iperf3.json" | jq -C '[ .intervals[] | .streams[0] | { "rtt": .rtt, "bps": .bits_per_second } ]'
 
 # Print queues
-ip netns exec ns1 tc -s -j -d qdisc show dev veth1 | tee $OUT/queues.json | jq -C .
+jq -C . "$OUT/queues.jsonl"
 
 # Save bpf trace
 mv "$trace_file" "$OUT/bpf.txt"
@@ -101,3 +107,4 @@ mv "$trace_file" "$OUT/bpf.txt"
 ip netns del ns1 &>/dev/null
 ip netns del ns2 &>/dev/null
 kill -9 "$BPF_PID"
+kill -9 "$TC_LOOP_PID"
