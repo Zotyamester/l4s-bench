@@ -35,7 +35,34 @@ def plot_cwnd_goodput_rtt(json_files: list[tuple[str, str]], output_file: str):
         ncol=len(labels),
     )
 
-    fig.tight_layout(pad=1.1, rect=[0, 0, 1, 0.95])
+    fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
+    fig.savefig(output_file)
+
+
+def plot_one_way_delay(json_files: list[tuple[str, str]], output_file: str):
+    fig, ax = plt.subplots(1, 1, figsize=(10, 9), sharex=True)
+
+    for json_file, label in json_files:
+        with open(json_file, "r") as f:
+            data = json.load(f)
+
+        time, one_way_delay = zip(*(obj.values() for obj in data))
+
+        ax.plot(time, one_way_delay, label=label)
+
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("One-Way Delay [ms]")
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.001),
+        ncol=len(labels),
+    )
+
+    fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
     fig.savefig(output_file)
 
 
@@ -85,7 +112,7 @@ def plot_bpf(
         ncol=len(labels),
     )
 
-    fig.tight_layout(pad=1.1, rect=[0, 0, 1, 0.95])
+    fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
     fig.savefig(output_file)
 
 
@@ -95,6 +122,19 @@ def parse_log_with_label(value: str):
     path, label = value.split(":", 1)
     if Path(path).suffix.lower() != ".txt":
         raise argparse.ArgumentTypeError("BPF log file must have a .txt extension")
+    return path, label
+
+
+def parse_qlog_with_label(value: str):
+    if ":" not in value:
+        raise argparse.ArgumentTypeError(
+            "qlog entries must be provided as 'PATH:LABEL'"
+        )
+    path, label = value.split(":", 1)
+    if Path(path).suffix.lower() != ".txt":
+        raise argparse.ArgumentTypeError(
+            "processed qlog output file must have a .txt extension"
+        )
     return path, label
 
 
@@ -144,6 +184,17 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--qlog",
+        dest="qlogs",
+        action="append",
+        type=parse_qlog_with_label,
+        metavar="PATH:LABEL",
+        help=(
+            "QLOG file path. Repeat for each qlog file to plot."
+            " The label will be derived from the file name."
+        ),
+    )
+    parser.add_argument(
         "--json",
         dest="jsons",
         action="append",
@@ -161,6 +212,10 @@ if __name__ == "__main__":
         plot_bpf(args.logs, args.output_file)
         sys.exit(0)
 
+    if args.qlogs:
+        plot_one_way_delay(args.qlogs, args.output_file)
+        sys.exit(0)
+
     if args.jsons:
         plot_cwnd_goodput_rtt(args.jsons, args.output_file)
         sys.exit(0)
@@ -169,12 +224,4 @@ if __name__ == "__main__":
         parser.error(
             "either --log or --json must be provided, or a JSON file path must be given"
         )
-
-    file_ext = args.json_file.split(".")[-1].lower()
-    match file_ext:
-        case "json":
-            plot_cwnd_goodput_rtt(
-                [(args.json_file, Path(args.json_file).stem)], args.output_file
-            )
-        case _:
-            parser.error("invalid input file format; use a JSON file for JSON plotting")
+        sys.exit(1)
