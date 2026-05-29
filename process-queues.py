@@ -1,62 +1,58 @@
 #!/usr/bin/env python3
 
-# {
-#     "time": 1779997184620711242,
-#     "queues": [
-#         {
-#             "kind": "dualpi2",
-#             "handle": "20:",
-#             "parent": "1:10",
-#             "options": {},
-#             "bytes": 836,
-#             "packets": 10,
-#             "drops": 0,
-#             "overlimits": 0,
-#             "requeues": 0,
-#             "backlog": 0,
-#             "qlen": 0,
-#             "prob": 0,
-#             "delay-c": 0,
-#             "delay-l": 0,
-#             "pkts-in-c": 9,
-#             "pkts-in-l": 1,
-#             "maxq": 0,
-#             "ecn-mark": 0,
-#             "step-mark": 0,
-#             "credit": -121120,
-#             "memory-used": 0,
-#             "max-memory-used": 2304,
-#             "memory-limit": 605600,
-#         },
-#     ],
-# }
-
+import argparse
 import json
+from pathlib import Path
+
+DEFAULT_FIELDS = ["time", "pkts-in-l", "step-mark", "drops", "qlen", "maxq"]
+
+# Docs for fields (from https://github.com/torvalds/linux/blob/8fde5d1d47f69db6082dfa34500c27f8485389a5/tools/include/uapi/linux/pkt_sched.h#L33-L43):
+#   bytes: Number of enqueued bytes
+#   packets: Number of enqueued packets
+#   drops: Packets dropped because of lack of resources
+#   overlimits: Number of throttle events when this flow goes out of allocated bandwidth
+#   qlen: Queue length
+#   backlog: Backlog size of queue
+# Docs for DualPI2-specific fields (from https://github.com/torvalds/linux/blob/8fde5d1d47f69db6082dfa34500c27f8485389a5/include/uapi/linux/pkt_sched.h#L1268-L1281):
+#   prob: Current base PI probability
+#   delay-c: Current C-queue delay in microseconds
+#   delay-l: Current L-queue delay in microseconds
+#   pkts-in-c: Number of packets enqueued in the C-queue
+#   pkts-in-l: Number of packets enqueued in the L-queue
+#   maxq: Maximum number of packets seen by the DualPI2
+#   ecn-mark: All packets marked with ECN
+#   step-mark: Only packets marked with ECN due to L-queue step AQM
+#   credit: Current c_protection credit
+#   memory-used: Memory used by both queues
+#   max-memory-used: Maximum used memory
+#   memory-limit: Memory limit of both queues
 
 
-def process_queues(file: str) -> list[dict]:
-    with open(file, mode="r") as f:
-        objs = [json.loads(line) for line in f.readlines()]
+def process_queues(
+    file: str | Path, kind: str = "dualpi2", fields: list[str] = DEFAULT_FIELDS
+) -> list[dict]:
+    path = Path(file)
+    with path.open(mode="r", encoding="utf-8") as f:
+        objs = [json.loads(line) for line in f if line.strip()]
 
-    flattened = [
-        {
-            "time": obj["time"],
-            **next((queue for queue in obj["queues"] if queue["kind"] == "dualpi2")),
-        }
-        for obj in objs
-    ]
+    effective_fields = ["time"] + [field for field in fields if field != "time"]
+
+    try:
+        flattened = [
+            {
+                "time": obj["time"],
+                **next((queue for queue in obj["queues"] if queue["kind"] == kind)),
+            }
+            for obj in objs
+        ]
+    except StopIteration:
+        raise ValueError(f"No queue of kind '{kind}' found in the input data.")
 
     filtered = [
-        {
-            k: v
-            for k, v in obj.items()
-            if k in {"time", "pkts-in-l", "step-mark", "drops"}
-        }
-        for obj in flattened
+        {field: flattened_obj.get(field, 0) for field in effective_fields}
+        for flattened_obj in flattened
     ]
 
-    # taking the gradient of pkts-in-l, step-mark, and drops over `i`
-    # note: we're filling in the missing point from derivation
     gradients = [{**filtered[0], "time": 0}] + [
         {
             k: v2 - v1
@@ -70,7 +66,39 @@ def process_queues(file: str) -> list[dict]:
     return time_converted
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Process queue statistics from a JSONL file and emit the aggregated output as a single JSON."
+    )
+    parser.add_argument(
+        "input",
+        nargs="?",
+        default="queues.jsonl",
+        help="Input JSONL file with queue statistics.",
+    )
+    parser.add_argument(
+        "-k",
+        "--kind",
+        default="dualpi2",
+        help="Queue kind to select from each JSON object.",
+    )
+    parser.add_argument(
+        "--fields",
+        nargs="+",
+        default=DEFAULT_FIELDS,
+        help="Fields to include in the output. Time is always included. Possible values: Possible values: bytes, packets, drops, overlimits, requeues, backlog, qlen, prob, delay-c, delay-l, pkts-in-c, pkts-in-l, maxq, ecn-mark, step-mark, credit, memory-used, max-memory-used, memory-limit.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    try:
+        logs = process_queues(args.input, kind=args.kind, fields=args.fields)
+        print(json.dumps(logs))
+    except Exception as e:
+        print(f"Error processing queues: {e}")
+
+
 if __name__ == "__main__":
-    logs = process_queues("queues.jsonl")
-    for log in logs:
-        print(log)
+    main()
