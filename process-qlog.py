@@ -26,7 +26,7 @@ def get_pkt_sent_events(events: Iterable[dict]) -> Iterable[dict]:
             "length": event["data"]["header"]["length"],
         }
         for event in events
-        if event.get("name") == "transport:packet_sent"
+        if event.get("name") == "quic:packet_sent"
     )
 
 
@@ -40,7 +40,7 @@ def get_pkt_rcvd_events(events: Iterable[dict]) -> Iterable[dict]:
             ),
         }
         for event in events
-        if event.get("name") == "transport:packet_received"
+        if event.get("name") == "quic:packet_received"
     )
 
 
