@@ -40,13 +40,13 @@ def plot_cwnd_goodput_rtt(json_files: list[tuple[str, str]], output_file: str):
 
 
 def plot_one_way_delay(json_files: list[tuple[str, str]], output_file: str):
-    fig, ax = plt.subplots(1, 1, figsize=(10, 9), sharex=True)
+    fig, ax = plt.subplots(1, 1, figsize=(16, 9), sharex=True)
 
     for json_file, label in json_files:
         with open(json_file, "r") as f:
             data = json.load(f)
 
-        time, one_way_delay = zip(*(obj.values() for obj in data))
+        time, one_way_delay = zip(*((obj["time"], obj["one_way_delay_ms"]) for obj in data["packets"]))
 
         ax.plot(time, one_way_delay, label=label)
 
