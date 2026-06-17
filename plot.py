@@ -39,21 +39,26 @@ def plot_cwnd_goodput_rtt(json_files: list[tuple[str, str]], output_file: str):
     fig.savefig(output_file)
 
 
-def plot_one_way_delay(json_files: list[tuple[str, str]], output_file: str):
-    fig, ax = plt.subplots(1, 1, figsize=(16, 9), sharex=True)
+def plot_qlog_rtt_cwnd(json_files: list[tuple[str, str]], output_file: str):
+    fig, ax = plt.subplots(2, 1, figsize=(16, 9), sharex=True)
 
     for json_file, label in json_files:
         with open(json_file, "r") as f:
             data = json.load(f)
 
-        time, one_way_delay = zip(*((obj["time"], obj["one_way_delay_ms"]) for obj in data["packets"]))
+        time, rtt = zip(*((obj["time"], obj["rtt"]) for obj in data["rtts"]))
 
-        ax.plot(time, one_way_delay, label=label)
+        ax[0].plot(time, rtt, label=label)
 
-    ax.set_xlabel("Time [s]")
-    ax.set_ylabel("One-Way Delay [ms]")
+        time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in data["cwnds"]))
 
-    handles, labels = ax.get_legend_handles_labels()
+        ax[1].plot(time, cwnd, label=label)
+
+    ax[0].set_ylabel("Round-Trip Time [ms]")
+    ax[1].set_ylabel("Congestion Window Size [byte]")
+    ax[1].set_xlabel("Time [ms]")
+
+    handles, labels = ax[0].get_legend_handles_labels()
     fig.legend(
         handles,
         labels,
@@ -213,7 +218,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.qlogs:
-        plot_one_way_delay(args.qlogs, args.output_file)
+        plot_qlog_rtt_cwnd(args.qlogs, args.output_file)
         sys.exit(0)
 
     if args.jsons:

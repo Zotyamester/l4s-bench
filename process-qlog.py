@@ -15,7 +15,7 @@ def get_qlog_events(qlog: str) -> Iterable[dict]:
                 return
 
 
-def get_pkt_sent_events(events: Iterable[dict]) -> Iterable[dict]:
+def proc_pkt_sent_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
             "time": event["time"],
@@ -26,11 +26,11 @@ def get_pkt_sent_events(events: Iterable[dict]) -> Iterable[dict]:
             "length": event["data"]["header"]["length"],
         }
         for event in events
-        if event.get("name") == "quic:packet_sent"
+        if event.get("name") == "quic:packet_sent"  # for sanitization
     )
 
 
-def get_pkt_rcvd_events(events: Iterable[dict]) -> Iterable[dict]:
+def proc_pkt_rcvd_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
             "time": event["time"],
@@ -40,11 +40,35 @@ def get_pkt_rcvd_events(events: Iterable[dict]) -> Iterable[dict]:
             ),
         }
         for event in events
-        if event.get("name") == "quic:packet_received"
+        if event.get("name") == "quic:packet_received"  # for sanitization
     )
 
 
-def get_connected_pkt_event_pairs(
+def proc_cwnd_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "cwnd": event["data"]["congestion_window"],
+        }
+        for event in events
+        if event.get("name") == "quic:recovery_metrics_updated"  # for sanitization
+        and "congestion_window" in event["data"]
+    )
+
+
+def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "rtt": event["data"]["latest_rtt"],
+        }
+        for event in events
+        if event.get("name") == "quic:recovery_metrics_updated"  # for sanitization
+        and "latest_rtt" in event["data"]
+    )
+
+
+def connect_pkt_event_pairs(
     sent: Iterable[dict], rcvd: Iterable[dict]
 ) -> list[tuple[dict, dict]]:
     sent = sorted(sent, key=lambda event: event["id"])
@@ -62,7 +86,8 @@ def get_connected_pkt_event_pairs(
             # print(f"packet was never received (i.e., it had been dropped): {sent[i]}")
             i += 1
         elif sent[i]["id"] > rcvd[j]["id"]:
-            raise Exception(f"received packet that was never sent: {rcvd[j]}")
+            # raise Exception(f"received packet that was never sent: {rcvd[j]}")
+            j += 1
         else:
             connected.append((sent[i], rcvd[j]))
             i += 1
@@ -83,16 +108,6 @@ def merge_pkt_event_pairs(pairs: list[tuple[dict, dict]]) -> list[dict]:
     ]
 
 
-def estimate_bandwidth(packets: list[dict]) -> float:
-    total_bytes = sum(packet["packet_length"] for packet in packets)
-    total_time_ms = max(packet["time"] for packet in packets) - min(
-        packet["time"] for packet in packets
-    )
-    if total_time_ms == 0:
-        return float("inf")
-    return (total_bytes * 8) / (total_time_ms / 1000)  # bits per second
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Process QLOG files to calculate one-way delays between sent and received packets"
@@ -111,16 +126,31 @@ def main():
 
     client_side = args.client
     server_side = args.server
-    client = get_qlog_events(client_side)
-    server = get_qlog_events(server_side)
-    sent = get_pkt_sent_events(client)
-    rcvd = get_pkt_rcvd_events(server)
-    connected = get_connected_pkt_event_pairs(sent, rcvd)
+    client_events = get_qlog_events(client_side)
+    server_events = get_qlog_events(server_side)
+
+    sent_events = []
+    cwnd_events = []
+    rcvd_events = []
+    for event in client_events:
+        if (name := event.get("name")) == "quic:packet_sent":
+            sent_events.append(event)
+        elif name == "quic:recovery_metrics_updated":
+            cwnd_events.append(event)
+    for event in server_events:
+        if (name := event.get("name")) == "quic:packet_received":
+            rcvd_events.append(event)
+    sent = proc_pkt_sent_events(sent_events)
+    rcvd = proc_pkt_rcvd_events(rcvd_events)
+    cwnds = proc_cwnd_events(cwnd_events)
+    rtts = proc_rtt_events(cwnd_events)
+
+    connected = connect_pkt_event_pairs(sent, rcvd)
     packets = merge_pkt_event_pairs(connected)
-    bandwidth = estimate_bandwidth(packets)
     result = {
-        "estimated_bandwidth_bps": bandwidth,
         "packets": packets,
+        "rtts": list(rtts),
+        "cwnds": list(cwnds),
     }
     print(json.dumps(result))
 
