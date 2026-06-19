@@ -61,7 +61,7 @@ def process_queues(
         for prev_obj, obj in zip(filtered, filtered[1:])
     ]
 
-    time_converted = [{**obj, "time": obj["time"] / 1e9} for obj in gradients]
+    time_converted = [{**obj, "time": obj["time"] / 1e6} for obj in gradients]  # Convert time from nanoseconds to milliseconds
 
     return time_converted
 

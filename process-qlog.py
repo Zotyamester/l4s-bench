@@ -67,6 +67,31 @@ def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
         and "latest_rtt" in event["data"]
     )
 
+def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "congestion_experienced": description[1].split(",")[2].split("=")[1],
+        }
+        for event in events
+        if event.get("name") == "quic:congestion_state_updated"  # for sanitization
+        and (description := event["data"]["new"].split(":"))
+        and description[0] == "ECN"
+    )
+
+
+def proc_loss_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "loss": description[1].split("=")[1],
+        }
+        for event in events
+        if event.get("name") == "quic:congestion_state_updated"  # for sanitization
+        and (description := event["data"]["new"].split(":"))
+        and description[0] == "LOSS"
+    )
+
 
 def connect_pkt_event_pairs(
     sent: Iterable[dict], rcvd: Iterable[dict]
@@ -131,12 +156,15 @@ def main():
 
     sent_events = []
     cwnd_events = []
+    cong_events = []
     rcvd_events = []
     for event in client_events:
         if (name := event.get("name")) == "quic:packet_sent":
             sent_events.append(event)
         elif name == "quic:recovery_metrics_updated":
             cwnd_events.append(event)
+        elif name == "quic:congestion_state_updated":
+            cong_events.append(event)
     for event in server_events:
         if (name := event.get("name")) == "quic:packet_received":
             rcvd_events.append(event)
@@ -144,6 +172,8 @@ def main():
     rcvd = proc_pkt_rcvd_events(rcvd_events)
     cwnds = proc_cwnd_events(cwnd_events)
     rtts = proc_rtt_events(cwnd_events)
+    ecns = proc_ecn_events(cong_events)
+    losses = proc_loss_events(cong_events)
 
     connected = connect_pkt_event_pairs(sent, rcvd)
     packets = merge_pkt_event_pairs(connected)
@@ -151,6 +181,8 @@ def main():
         "packets": packets,
         "rtts": list(rtts),
         "cwnds": list(cwnds),
+        "ecns": list(ecns),
+        "losses": list(losses),
     }
     print(json.dumps(result))
 

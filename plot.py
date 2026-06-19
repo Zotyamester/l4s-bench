@@ -3,60 +3,63 @@
 import matplotlib.pyplot as plt
 import json
 import sys
-from pathlib import Path
 
 
-def plot_cwnd_goodput_rtt(json_files: list[tuple[str, str]], output_file: str):
-    fig, ax = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
+def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[tuple[str, str]], output_file: str):
+    fig, ax = plt.subplots(5, 1, figsize=(30, 18), sharex=True)
 
-    for json_file, label in json_files:
-        with open(json_file, "r") as f:
-            data = json.load(f)
+    rtt_values = []
 
-        time, cwnd, goodput, rtt = zip(*(obj.values() for obj in data))
-
-        ax[0].plot(time, cwnd, label=label)
-        ax[1].plot(time, goodput, label=label)
-        ax[2].plot(time, rtt, label=label)
-
-    ax[0].set_ylabel("Congestion Window Size [byte]")
-
-    ax[1].set_ylabel("Goodput [bps]")
-
-    ax[2].set_xlabel("Time [s]")
-    ax[2].set_ylabel("RTT [us]")
-
-    handles, labels = ax[0].get_legend_handles_labels()
-    fig.legend(
-        handles,
-        labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.001),
-        ncol=len(labels),
-    )
-
-    fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
-    fig.savefig(output_file)
-
-
-def plot_qlog_rtt_cwnd(json_files: list[tuple[str, str]], output_file: str):
-    fig, ax = plt.subplots(2, 1, figsize=(16, 9), sharex=True)
-
-    for json_file, label in json_files:
+    for json_file, label in endpoint_files:
         with open(json_file, "r") as f:
             data = json.load(f)
 
         time, rtt = zip(*((obj["time"], obj["rtt"]) for obj in data["rtts"]))
+        rtt_values.extend(rtt)
 
         ax[0].plot(time, rtt, label=label)
 
-        time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in data["cwnds"]))
+        time, cwnd = zip(*((obj["time"], obj["cwnd"])
+                         for obj in data["cwnds"]))
 
         ax[1].plot(time, cwnd, label=label)
 
+        if len(data["ecns"]) > 0:
+            time, ecns = zip(*((obj["time"], obj["congestion_experienced"])
+                             for obj in data["ecns"]))
+
+            ax[3].scatter(time, ecns, label=label)
+        else:
+            ax[3].scatter([0], [0], label=label)
+
+        if len(data["losses"]) > 0:
+            time, losses = zip(*((obj["time"], obj["loss"])
+                             for obj in data["losses"]))
+
+            ax[4].scatter(time, losses, label=label)
+        else:
+            ax[4].scatter([0], [0], label=label)
+
+    rtt_values.sort()
+    rtt_p95 = rtt_values[int(len(rtt_values) * 0.95)]
+    rtt_avg = sum(rtt_values) / len(rtt_values)
+
+    #for queue_file, label in queue_files:
+    #    with open(queue_file, "r") as f:
+    #        data = json.load(f)
+
+    #    time, qlen = zip(*((obj["time"], obj["qlen"]) for obj in data))
+
+    #    ax[2].plot(time, qlen, label=label)
+
     ax[0].set_ylabel("Round-Trip Time [ms]")
+    # set y-axis to ignore outliers, calculate the 95th percentile of the RTT values and set the y-axis limit to that value
+    ax[0].set_ylim(bottom=0, top=rtt_p95 + (rtt_avg - 0))
     ax[1].set_ylabel("Congestion Window Size [byte]")
-    ax[1].set_xlabel("Time [ms]")
+    ax[2].set_ylabel("Queue Length [packet]")
+    ax[3].set_ylabel("ECN CE Count")
+    ax[4].set_ylabel("Size of Lost Packets [byte]")
+    ax[4].set_xlabel("Time [ms]")
 
     handles, labels = ax[0].get_legend_handles_labels()
     fig.legend(
@@ -71,86 +74,12 @@ def plot_qlog_rtt_cwnd(json_files: list[tuple[str, str]], output_file: str):
     fig.savefig(output_file)
 
 
-def plot_bpf(
-    log_files: list[tuple[str, str]], output_file: str, show_inflight: bool = False
-):
-    fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-
-    for log_file, label in log_files:
-        with open(log_file, "r") as f:
-            data = [line.split() for line in f.readlines()]
-
-        timestamp, cwnd, inflight, srtt = zip(
-            *(
-                (
-                    int(row[0]) / 1e9,
-                    int(row[1]),
-                    int(row[2]) / 1500,
-                    int(row[3]) / 1e3,
-                )
-                for row in data
-            )
-        )
-
-        # normalize timestamps to start from the first one
-        timestamp = [ts - timestamp[0] for ts in timestamp]
-
-        ax[0].plot(timestamp, cwnd, label=f"{label}{'-cwnd' if show_inflight else ''}")
-        if show_inflight:
-            ax[0].plot(timestamp, inflight, label=f"{label}-inflight")
-        ax[1].plot(timestamp, srtt, label=label)
-
-    ax[0].set_ylabel("Congestion Window Size [packet]")
-    ax[0].set_ylim(0, 900)
-
-    ax[1].set_xlabel("Time [s]")
-    ax[1].set_xlim(0, 60)
-    ax[1].set_ylabel("RTT [ms]")
-    ax[1].set_ylim(0, 450)
-
-    handles, labels = ax[0].get_legend_handles_labels()
-    fig.legend(
-        handles,
-        labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.001),
-        ncol=len(labels),
-    )
-
-    fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
-    fig.savefig(output_file)
-
-
-def parse_log_with_label(value: str):
-    if ":" not in value:
-        raise argparse.ArgumentTypeError("Log entries must be provided as 'PATH:LABEL'")
-    path, label = value.split(":", 1)
-    if Path(path).suffix.lower() != ".txt":
-        raise argparse.ArgumentTypeError("BPF log file must have a .txt extension")
-    return path, label
-
-
-def parse_qlog_with_label(value: str):
-    if ":" not in value:
+def parse_path_label_pair(text: str):
+    if ":" not in text:
         raise argparse.ArgumentTypeError(
-            "qlog entries must be provided as 'PATH:LABEL'"
+            "entries must be provided as 'PATH:LABEL'"
         )
-    path, label = value.split(":", 1)
-    if Path(path).suffix.lower() != ".txt":
-        raise argparse.ArgumentTypeError(
-            "processed qlog output file must have a .txt extension"
-        )
-    return path, label
-
-
-def parse_json_with_label(value: str):
-    if ":" not in value:
-        raise argparse.ArgumentTypeError(
-            "JSON entries must be provided as 'PATH:LABEL'"
-        )
-    path, label = value.split(":", 1)
-    if Path(path).suffix.lower() != ".json":
-        raise argparse.ArgumentTypeError("JSON file must have a .json extension")
+    path, label = text.split(":", 1)
     return path, label
 
 
@@ -166,33 +95,10 @@ if __name__ == "__main__":
         help="Path to save the PNG output plot.",
     )
     parser.add_argument(
-        "json_file",
-        nargs="?",
-        help="Path to the JSON input file for JSON-based plotting.",
-    )
-    parser.add_argument(
-        "--show-inflight",
-        action=argparse.BooleanOptionalAction,
-        help=(
-            "Show number of inflight packets as a function of time when plotting based on BPF logs."
-        ),
-    )
-    parser.add_argument(
-        "--log",
-        dest="logs",
-        action="append",
-        type=parse_log_with_label,
-        metavar="PATH:LABEL",
-        help=(
-            "BPF log file and label pair in the form PATH:LABEL."
-            " Repeat for each algorithm to plot."
-        ),
-    )
-    parser.add_argument(
         "--qlog",
         dest="qlogs",
         action="append",
-        type=parse_qlog_with_label,
+        type=parse_path_label_pair,
         metavar="PATH:LABEL",
         help=(
             "QLOG file path. Repeat for each qlog file to plot."
@@ -200,33 +106,25 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--json",
-        dest="jsons",
+        "--queue",
+        dest="queues",
         action="append",
-        type=parse_json_with_label,
+        type=parse_path_label_pair,
         metavar="PATH:LABEL",
         help=(
-            "JSON file and label pair in the form PATH:LABEL."
-            " Repeat for each algorithm to plot."
+            "Queue file path. Repeat for each queue file to plot."
+            " The label will be derived from the file name."
         ),
     )
 
     args = parser.parse_args()
 
-    if args.logs:
-        plot_bpf(args.logs, args.output_file)
-        sys.exit(0)
-
-    if args.qlogs:
-        plot_qlog_rtt_cwnd(args.qlogs, args.output_file)
-        sys.exit(0)
-
-    if args.jsons:
-        plot_cwnd_goodput_rtt(args.jsons, args.output_file)
+    if args.qlogs and args.queues:
+        plot_qlog_rtt_cwnd(args.qlogs, args.queues, args.output_file)
         sys.exit(0)
 
     if args.json_file is None:
         parser.error(
-            "either --log or --json must be provided, or a JSON file path must be given"
+            "both --qlog and --queue must be provided, or a JSON file path must be given"
         )
         sys.exit(1)
