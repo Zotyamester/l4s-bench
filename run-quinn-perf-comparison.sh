@@ -12,4 +12,6 @@ mkdir -p results/{prague,new-reno}
 ./process-queues.py --kind dualpi2 results/new-reno/queues.jsonl > results/new-reno/queues.json
 
 . .venv/bin/activate # for matplotlib only
-./plot.py --qlog results/prague/qlog.json:prague --qlog results/new-reno/qlog.json:new-reno --queue results/prague/queues.json:prague --queue results/new-reno/queues.json:new-reno plot.png
+./plot.py --qlog results/prague/qlog.json:prague --qlog results/new-reno/qlog.json:new-reno --queue results/prague/queues.json:prague --queue results/new-reno/queues.json:new-reno results/plot.png
+
+chown -R $(id -u):$(id -g) results # make sure the results are owned by the user, not root (the script must be run as root because of Mininet)

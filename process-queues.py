@@ -33,7 +33,14 @@ def process_queues(
 ) -> list[dict]:
     path = Path(file)
     with path.open(mode="r", encoding="utf-8") as f:
-        objs = [json.loads(line) for line in f if line.strip()]
+        objs = []
+        for line in f:
+            if line := line.strip():
+                try:
+                    obj = json.loads(line)
+                    objs.append(obj)
+                except json.JSONDecodeError:
+                    continue  # Skip lines that are not valid JSON
 
     effective_fields = ["time"] + [field for field in fields if field != "time"]
 

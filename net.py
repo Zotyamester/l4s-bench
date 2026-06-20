@@ -150,7 +150,7 @@ def iperf(
             else ""
         )
         + (
-            f"( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == {5201}/ {{ printf(\"%llu %u %u %u %u\\n\", nsecs, args->snd_cwnd, args->snd_nxt, args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & );"
+            f"( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == {5201}/ {{ printf(\\\"%llu %u %u %u %u\\n\\\", nsecs, args->snd_cwnd, args->snd_nxt, args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & );"
             if bpf
             else ""
         )
@@ -172,13 +172,17 @@ def quinn_perf(
     out_dir: str,
     **kwargs,
 ) -> dict:
-    h1, h2 = net["h1"], net["h2"]
+    h1, h2, r0 = net["h1"], net["h2"], net["r0"]
+
 
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
         f"       --ecn l4s"
         f"       --qlog '{out_dir}/h2.qlog'"
         f"       --listen {h2.IP()}:{4433} &"
+    )
+    _rourter_output = r0.cmd(
+        f'( while true; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl"; sleep 0.01; done ) &'
     )
     client_output = h1.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"

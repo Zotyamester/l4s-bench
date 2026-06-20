@@ -44,19 +44,19 @@ def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[
     rtt_p95 = rtt_values[int(len(rtt_values) * 0.95)]
     rtt_avg = sum(rtt_values) / len(rtt_values)
 
-    #for queue_file, label in queue_files:
-    #    with open(queue_file, "r") as f:
-    #        data = json.load(f)
+    for queue_file, label in queue_files:
+        with open(queue_file, "r") as f:
+            data = json.load(f)
 
-    #    time, qlen = zip(*((obj["time"], obj["qlen"]) for obj in data))
+        time, qlen = zip(*((obj["time"], obj["pkts-in-l"]) for obj in data))
 
-    #    ax[2].plot(time, qlen, label=label)
+        ax[2].plot(time, qlen, label=label)
 
     ax[0].set_ylabel("Round-Trip Time [ms]")
     # set y-axis to ignore outliers, calculate the 95th percentile of the RTT values and set the y-axis limit to that value
     ax[0].set_ylim(bottom=0, top=rtt_p95 + (rtt_avg - 0))
     ax[1].set_ylabel("Congestion Window Size [byte]")
-    ax[2].set_ylabel("Queue Length [packet]")
+    ax[2].set_ylabel("L-Queue Length [packet]")
     ax[3].set_ylabel("ECN CE Count")
     ax[4].set_ylabel("Size of Lost Packets [byte]")
     ax[4].set_xlabel("Time [ms]")
