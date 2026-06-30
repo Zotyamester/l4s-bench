@@ -1,0 +1,37 @@
+{
+    "benchmark": [
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario1",
+                    "btl_bw": [16, 32, 48],
+                    "delay": 6,
+                    "repeat": [1]
+                },
+                "script": "OUT=$PWD BW=$btl_bw DELAY=$delay ./run-quinn-perf-comparison.sh"
+            }
+        },
+        {
+            "scale": "joint",
+            "tester": {
+                "type": "generic",
+                "environ": {
+                    "name": "scenario1",
+                    "btl_bw": 32,
+                    "delay": [3, 6, 9],
+                    "repeat": [1]
+                },
+                "script": "OUT=$PWD BW=$btl_bw DELAY=$delay ./run-quinn-perf-comparison.sh"
+            }
+        }
+    ],
+    "default": {
+        "scale": "outer",
+        "pipeline": {"name": "none"},
+        "sut": {"type": "none"},
+        "tester": {"type": "generic"},
+        "traffic": {}
+    }
+}
