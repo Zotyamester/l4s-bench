@@ -1,17 +1,22 @@
 #!/bin/bash
 
+OUT=${OUT:-$PWD}
+BW=${BW:-32}
+DELAY=${BW:-6}
+DURATION=${DURATION:-60}
+
 set -o xtrace
 set -e
 
-mkdir -p results/{prague,new-reno}
-./net.py --out-dir results/prague --quic-benchmark --algorithm prague --bottleneck-bandwidth 32 --last-mile-delay 6 --measurement-duration 60
-./net.py --out-dir results/new-reno --quic-benchmark --algorithm new-reno --bottleneck-bandwidth 32 --last-mile-delay 6 --measurement-duration 60
-./process-qlog.py --client results/prague/h1.qlog --server results/prague/h2.qlog > results/prague/qlog.json
-./process-qlog.py --client results/new-reno/h1.qlog --server results/new-reno/h2.qlog > results/new-reno/qlog.json
-./process-queues.py --kind dualpi2 results/prague/queues.jsonl > results/prague/queues.json
-./process-queues.py --kind dualpi2 results/new-reno/queues.jsonl > results/new-reno/queues.json
+mkdir -p $OUT/results/{prague,new-reno}
+./net.py --out-dir $OUT/results/prague --quic-benchmark --algorithm prague --bottleneck-bandwidth $BW --last-mile-delay $DELAY --measurement-duration $DURATION
+./net.py --out-dir $OUT/results/new-reno --quic-benchmark --algorithm new-reno --bottleneck-bandwidth $BW --last-mile-delay $DELAY --measurement-duration $DURATION
+./process-qlog.py --client $OUT/results/prague/h1.qlog --server $OUT/results/prague/h2.qlog > $OUT/results/prague/qlog.json
+./process-qlog.py --client $OUT/results/new-reno/h1.qlog --server $OUT/results/new-reno/h2.qlog > $OUT/results/new-reno/qlog.json
+./process-queues.py --kind dualpi2 $OUT/results/prague/queues.jsonl > $OUT/results/prague/queues.json
+./process-queues.py --kind dualpi2 $OUT/results/new-reno/queues.jsonl > $OUT/results/new-reno/queues.json
 
 . .venv/bin/activate # for matplotlib only
-./plot.py --qlog results/prague/qlog.json:prague --qlog results/new-reno/qlog.json:new-reno --queue results/prague/queues.json:prague --queue results/new-reno/queues.json:new-reno results/plot.png
+./plot.py --qlog $OUT/results/prague/qlog.json:prague --qlog $OUT/results/new-reno/qlog.json:new-reno --queue $OUT/results/prague/queues.json:prague --queue $OUT/results/new-reno/queues.json:new-reno $OUT/results/plot.png
 
 chown -R $(id -u):$(id -g) results # make sure the results are owned by the user, not root (the script must be run as root because of Mininet)
