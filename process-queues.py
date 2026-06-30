@@ -60,15 +60,9 @@ def process_queues(
         for flattened_obj in flattened
     ]
 
-    gradients = [{**filtered[0], "time": 0}] + [
-        {
-            k: v2 - v1
-            for k, v1, v2 in zip(prev_obj.keys(), prev_obj.values(), obj.values())
-        }
-        for prev_obj, obj in zip(filtered, filtered[1:])
-    ]
+    filtered.sort(key=lambda obj: obj["time"])
 
-    time_converted = [{**obj, "time": obj["time"] / 1e6} for obj in gradients]  # Convert time from nanoseconds to milliseconds
+    time_converted = [{**obj, "time": (obj["time"] - filtered[0]["time"]) / 1e6} for obj in filtered]  # Convert time (offset by the first obj) from nanoseconds to milliseconds
 
     return time_converted
 
