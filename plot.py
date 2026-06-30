@@ -49,17 +49,17 @@ def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[
             time, ecns = zip(*((obj["time"], obj["congestion_experienced"])
                              for obj in data["ecns"]))
 
-            ax[4].scatter(time, ecns, label=label)
+            ax[4].scatter(time, ecns, label=label, s=10)
         else:
-            ax[4].scatter([0], [0], label=label)
+            ax[4].scatter([0], [0], label=label, s=10)
 
         if len(data["losses"]) > 0:
             time, losses = zip(*((obj["time"], obj["loss"])
                              for obj in data["losses"]))
 
-            ax[5].scatter(time, losses, label=label)
+            ax[5].scatter(time, losses, label=label, s=10)
         else:
-            ax[5].scatter([0], [0], label=label)
+            ax[5].scatter([0], [0], label=label, s=10)
 
         time, packets = zip(*((obj["time"], obj) for obj in data["packets"] if obj["packet_type"] == "1RTT"))
         throughputs = calculate_throughput_windows(packets, 10000)
@@ -73,16 +73,16 @@ def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[
         with open(queue_file, "r") as f:
             data = json.load(f)
 
-        time, qlen = zip(*((obj["time"], obj["drops"]) for obj in data))
+        time, qlen = zip(*((obj["time"], obj["qlen"]) for obj in data))
 
-        ax[3].scatter(time, qlen, label=label)
+        ax[3].plot(time, qlen, label=label)
 
     ax[0].set_ylabel("One-Way Delay [ms]")
     ax[1].set_ylabel("Round-Trip Time [ms]")
     # set y-axis to ignore outliers, calculate the 95th percentile of the RTT values and set the y-axis limit to that value
     ax[1].set_ylim(bottom=0, top=rtt_p95 + (rtt_avg - 0))
     ax[2].set_ylabel("Congestion Window Size [byte]")
-    ax[3].set_ylabel("L-Queue Length [packet]")
+    ax[3].set_ylabel("Queue Length [packet]")
     ax[4].set_ylabel("ECN CE Count")
     ax[5].set_ylabel("Size of Lost Packets [byte]")
     ax[6].set_ylabel("Estimated Throughputs [bps]")
