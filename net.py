@@ -30,6 +30,7 @@ class DualPI2Router(Node):
         btl_bw: int,
         rtt: int,
         use_dualpi2: bool = True,
+        queue_length_factor: float = 2.0,
         manual_override: str = "",
         **kwargs,
     ):
@@ -53,14 +54,15 @@ class DualPI2Router(Node):
             rtt_in_s = rtt / 1e3  # ms to s conversion
 
             # BDP [B] = BW [Bps] * RTT [s]
-            bdp = int(bw_in_Bps * rtt_in_s)
+            bdp = bw_in_Bps * rtt_in_s
+            queue_length = int(queue_length_factor * bdp)
 
             self.cmd(
                 f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 "
                 + (
                     manual_override
                     if manual_override != ""
-                    else (f" memlimit {bdp}" f" typical_rtt {rtt}ms")
+                    else (f" memlimit {queue_length}" f" typical_rtt {rtt}ms")
                 )
             )
 
@@ -181,8 +183,9 @@ def quinn_perf(
         f"       --qlog '{out_dir}/h2.qlog'"
         f"       --listen {h2.IP()}:{4433} &"
     )
-    _rourter_output = r0.cmd(
-        f'( while true; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl"; sleep 0.01; done ) &'
+    _router_output = r0.cmd(
+        f'> "{out_dir}/queues.jsonl" && '
+        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.01 ; done ) &'
     )
     client_output = h1.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
@@ -205,6 +208,7 @@ def run(
     last_mile_delay: int,
     out_dir: str,
     use_dualpi2: bool = True,
+    queue_length_factor: float = 2.0,
     override_dualpi2: str = "",
     benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
     measurement_duration: int = 60,
@@ -229,6 +233,7 @@ def run(
             btl_bw=btl_bw,
             rtt=rtt,
             use_dualpi2=use_dualpi2,
+            queue_length_factor=queue_length_factor,
             manual_override=override_dualpi2,
         ),
         last_mile_delay=last_mile_delay,
@@ -295,6 +300,7 @@ if __name__ == "__main__":
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
     parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
+    parser.add_argument("--queue-length-factor", type=float, default=2.0)
     parser.add_argument("--override-dualpi2", type=str, default="")
     # Benchmark parameters
     parser.add_argument("--measurement-duration", type=int, default=15)
@@ -317,6 +323,7 @@ if __name__ == "__main__":
         last_mile_delay=args.last_mile_delay,
         out_dir=args.out_dir,
         use_dualpi2=args.dualpi2,
+        queue_length_factor=args.queue_length_factor,
         override_dualpi2=args.override_dualpi2,
         benchmark=benchmark,
         measurement_duration=args.measurement_duration,
