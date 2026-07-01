@@ -1,8 +1,9 @@
 #!/bin/bash
 
 OUT=${OUT:-$PWD}
+QLEN_FACTOR=${QLEN_FACTOR:-2}
 BW=${BW:-32}
-DELAY=${BW:-6}
+DELAY=${DELAY:-6}
 DURATION=${DURATION:-60}
 
 set -o xtrace
@@ -17,6 +18,14 @@ mkdir -p $OUT/results/{prague,new-reno}
 ./process-queues.py --kind dualpi2 $OUT/results/new-reno/queues.jsonl > $OUT/results/new-reno/queues.json
 
 . .venv/bin/activate # for matplotlib only
-./plot.py --qlog $OUT/results/prague/qlog.json:prague --qlog $OUT/results/new-reno/qlog.json:new-reno --queue $OUT/results/prague/queues.json:prague --queue $OUT/results/new-reno/queues.json:new-reno $OUT/results/plot.png
+./plot.py \
+    --qlog $OUT/results/prague/qlog.json:prague \
+    --qlog $OUT/results/new-reno/qlog.json:new-reno \
+    --queue $OUT/results/prague/queues.json:prague \
+    --queue $OUT/results/new-reno/queues.json:new-reno \
+    --queue-length-factor $QLEN_FACTOR \
+    --bandwidth $BW \
+    --round-trip-time $((4*$DELAY)) \
+    $OUT/results/plot.png
 
-chown -R $(id -u):$(id -g) results # make sure the results are owned by the user, not root (the script must be run as root because of Mininet)
+chown -R $SUDO_USER:$SUDO_USER $OUT/results/
