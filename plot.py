@@ -23,7 +23,7 @@ def calculate_throughput_windows(packets: list[dict], time_window_ms: float) -> 
     return tputs
 
 
-def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[tuple[str, str]], output_file: str):
+def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[tuple[str, str]], queue_length_factor: float, bandwidth: int, round_trip_time: int, output_file: str):
     fig, ax = plt.subplots(7, 1, figsize=(30, 18), sharex=True)
 
     rtt_values = []
@@ -77,15 +77,32 @@ def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[
 
         ax[3].plot(time, qlen, label=label)
 
+        bw_in_Bps = bandwidth * 1e6 / 8  # Mbps to Bps conversion
+        rtt_in_s = round_trip_time / 1e3  # ms to s conversion
+
+        # BDP [B] = BW [Bps] * RTT [s]
+        bdp = bw_in_Bps * rtt_in_s
+        queue_length_limit = int(queue_length_factor * bdp)
+        MTU = 1500
+        ax[3].axhline(queue_length_limit // MTU, color="red", linestyle="--", label="BDP (in packets)")
+
+    # set y-axis for delays to ignore outliers, calculate the 95th percentile
+    # of the RTT (and the OWD estimate) values and set the y-axis limit to that
     ax[0].set_ylabel("One-Way Delay [ms]")
+    ax[0].set_ylim(bottom=0, top=rtt_p95 / 2 + (rtt_avg / 2 - 0))
     ax[1].set_ylabel("Round-Trip Time [ms]")
-    # set y-axis to ignore outliers, calculate the 95th percentile of the RTT values and set the y-axis limit to that value
     ax[1].set_ylim(bottom=0, top=rtt_p95 + (rtt_avg - 0))
+
     ax[2].set_ylabel("Congestion Window Size [byte]")
+    ax[2].set_ylim(bottom=0)
     ax[3].set_ylabel("Queue Length [packet]")
+    ax[3].set_ylim(bottom=0)
     ax[4].set_ylabel("ECN CE Count")
+    ax[4].set_ylim(bottom=0)
     ax[5].set_ylabel("Size of Lost Packets [byte]")
+    ax[5].set_ylim(bottom=0)
     ax[6].set_ylabel("Estimated Throughputs [bps]")
+    ax[6].set_ylim(bottom=0)
     ax[6].set_xlabel("Time [ms]")
 
     handles, labels = ax[0].get_legend_handles_labels()
@@ -96,6 +113,8 @@ def plot_qlog_rtt_cwnd(endpoint_files: list[tuple[str, str]], queue_files: list[
         bbox_to_anchor=(0.5, 1.001),
         ncol=len(labels),
     )
+
+    fig.suptitle(f"Congestion Window Size and Queue Length\nBandwidth: {bandwidth} Mbps, Round-Trip Time: {round_trip_time} ms", fontsize=16)
 
     fig.tight_layout(pad=1.1, rect=(0, 0, 1, 0.95))
     fig.savefig(output_file)
@@ -143,15 +162,17 @@ if __name__ == "__main__":
             " The label will be derived from the file name."
         ),
     )
+    parser.add_argument("--queue-length-factor", type=float)
+    parser.add_argument("--bandwidth", type=int)
+    parser.add_argument("--round-trip-time", type=int)
 
     args = parser.parse_args()
 
     if args.qlogs and args.queues:
-        plot_qlog_rtt_cwnd(args.qlogs, args.queues, args.output_file)
+        plot_qlog_rtt_cwnd(args.qlogs, args.queues, args.queue_length_factor, args.bandwidth, args.round_trip_time, args.output_file)
         sys.exit(0)
-
-    if args.json_file is None:
+    else:
         parser.error(
-            "both --qlog and --queue must be provided, or a JSON file path must be given"
+            "--qlog, --queue, --bandwidth, and --round-trip-time must be given"
         )
         sys.exit(1)
