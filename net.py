@@ -30,7 +30,7 @@ class DualPI2Router(Node):
         btl_bw: int,
         rtt: int,
         use_dualpi2: bool = True,
-        queue_length_factor: float = 2.0,
+        queue_length_factor: float = 1.0,
         manual_override: str = "",
         **kwargs,
     ):
@@ -195,6 +195,9 @@ def quinn_perf(
         f"       --ip {h2.IP()}"
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
+        f"       --initial-window 96000"
+        f"       --skip-slow-start"
+        f"       --ignore-ecn-until-loss"
         f"       --json -"
         f"       --qlog '{out_dir}/h1.qlog'"
         f"       --duration {duration}"
@@ -211,7 +214,7 @@ def run(
     last_mile_delay: int,
     out_dir: str,
     use_dualpi2: bool = True,
-    queue_length_factor: float = 2.0,
+    queue_length_factor: float = 1.0,
     override_dualpi2: str = "",
     benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
     measurement_duration: int = 60,
@@ -303,7 +306,7 @@ if __name__ == "__main__":
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
     parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
-    parser.add_argument("--queue-length-factor", type=float, default=2.0)
+    parser.add_argument("--queue-length-factor", type=float, default=1.0)
     parser.add_argument("--override-dualpi2", type=str, default="")
     # Benchmark parameters
     parser.add_argument("--measurement-duration", type=int, default=15)
