@@ -55,14 +55,17 @@ class DualPI2Router(Node):
 
             # BDP [B] = BW [Bps] * RTT [s]
             bdp = bw_in_Bps * rtt_in_s
-            queue_length = int(queue_length_factor * bdp)
+            queue_length_in_B = int(queue_length_factor * bdp)
 
             self.cmd(
                 f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 "
                 + (
                     manual_override
                     if manual_override != ""
-                    else (f" memlimit {queue_length}" f" typical_rtt {rtt}ms")
+                    else (f" memlimit {queue_length_in_B}"
+                          f" typical_rtt {rtt}ms"
+                          f" target {5}ms"
+                          f" step_thresh {1}ms")
                 )
             )
 
