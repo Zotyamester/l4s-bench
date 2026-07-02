@@ -101,6 +101,7 @@ def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
         and "latest_rtt" in event["data"]
     )
 
+
 def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {

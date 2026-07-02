@@ -20,6 +20,6 @@ except ValueError:
 bw_in_Bps = bw_in_Mbps * 1e6 / 8
 rtt_in_s = rtt_in_ms / 1e3
 
-bdp_in_bytes = bw_in_Bps * rtt_in_s
-bdp = math.ceil(bdp_in_bytes)
+bdp_in_B = bw_in_Bps * rtt_in_s
+bdp = math.ceil(bdp_in_B)
 print(bdp)
