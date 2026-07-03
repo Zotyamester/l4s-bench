@@ -3,6 +3,7 @@
 import itertools
 import json
 import os
+import math
 from collections.abc import Callable
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
@@ -55,7 +56,7 @@ class DualPI2Router(Node):
 
             # BDP [B] = BW [Bps] * RTT [s]
             bdp = bw_in_Bps * rtt_in_s
-            queue_length_in_B = int(queue_length_factor * bdp)
+            queue_length_in_B = math.ceil(queue_length_factor * bdp)
 
             self.cmd(
                 f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 "
@@ -145,9 +146,13 @@ def iperf(
     packet_capture: bool = False,
     bpf: bool = False,
 ) -> dict:
-    h1, h2 = net["h1"], net["h2"]
+    h1, h2, r0 = net["h1"], net["h2"], net["r0"]
 
     _server_output = h2.cmd("iperf3 --server --daemon")
+    _router_output = r0.cmd(
+        f'> "{out_dir}/queues.jsonl" && '
+        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
+    )
     client_output = h1.cmd(
         (
             f"( tcpdump -i h1-eth0 -w {out_dir}/h1.pcap &>/dev/null & ); "
@@ -188,16 +193,13 @@ def quinn_perf(
     )
     _router_output = r0.cmd(
         f'> "{out_dir}/queues.jsonl" && '
-        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.01 ; done ) &'
+        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
     )
     client_output = h1.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
         f"       --ecn l4s"
         f"       --congestion {algorithm}"
-        f"       --initial-window 96000"
-        f"       --skip-slow-start"
-        f"       --ignore-ecn-until-loss"
         f"       --json -"
         f"       --qlog '{out_dir}/h1.qlog'"
         f"       --duration {duration}"
