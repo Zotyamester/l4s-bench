@@ -44,16 +44,14 @@ def process_queues(
 
     effective_fields = ["time"] + [field for field in fields if field != "time"]
 
-    try:
-        flattened = [
-            {
-                "time": obj["time"],
-                **next((queue for queue in obj["queues"] if queue["kind"] == kind)),
-            }
-            for obj in objs
-        ]
-    except StopIteration:
-        raise ValueError(f"No queue of kind '{kind}' found in the input data.")
+    flattened = [
+        {
+            "time": obj["time"],
+            **matching_queue_kind,
+        }
+        for obj in objs
+        if (matching_queue_kind := next((queue for queue in obj["queues"] if queue["kind"] == kind), None))
+    ]
 
     filtered = [
         {field: flattened_obj.get(field, 0) for field in effective_fields}
