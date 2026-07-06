@@ -44,15 +44,27 @@ def proc_pkt_rcvd_events(events: Iterable[dict]) -> Iterable[dict]:
     )
 
 
-def proc_cwnd_events(events: Iterable[dict]) -> Iterable[dict]:
+def proc_recov_metrics(events: Iterable[dict], field: str, name: str) -> Iterable[dict]:
     return (
         {
             "time": event["time"],
-            "cwnd": event["data"]["congestion_window"],
+            name: event["data"][field],
         }
         for event in events
         if event.get("name") == "quic:recovery_metrics_updated"  # for sanitization
-        and "congestion_window" in event["data"]
+        and field in event["data"]
+    )
+
+
+def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "rtt": event["data"]["latest_rtt"],
+        }
+        for event in events
+        if event.get("name") == "quic:recovery_metrics_updated"  # for sanitization
+        and "latest_rtt" in event["data"]
     )
 
 
@@ -88,18 +100,6 @@ def proc_cca_state_events(events: Iterable[dict]) -> Iterable[dict]:
                 states.append({"time": event["time"], "state": "RECOV"})
 
     return states
-
-
-def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
-    return (
-        {
-            "time": event["time"],
-            "rtt": event["data"]["latest_rtt"],
-        }
-        for event in events
-        if event.get("name") == "quic:recovery_metrics_updated"  # for sanitization
-        and "latest_rtt" in event["data"]
-    )
 
 
 def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
@@ -205,8 +205,10 @@ def main():
             rcvd_events.append(event)
     sent = proc_pkt_sent_events(sent_events)
     rcvd = proc_pkt_rcvd_events(rcvd_events)
-    cwnds = proc_cwnd_events(cwnd_events)
-    rtts = proc_rtt_events(cwnd_events)
+    cwnds = proc_recov_metrics(cwnd_events, field="congestion_window", name="cwnd")
+    rtts = proc_recov_metrics(cwnd_events, field="latest_rtt", name="rtt")
+    inflights = proc_recov_metrics(cwnd_events, field="bytes_in_flight", name="inflight")
+    ssthreshs = proc_recov_metrics(cwnd_events, field="ssthresh", name="ssthresh")
     ecns = proc_ecn_events(cong_events)
     losses = proc_loss_events(cong_events)
     cca = proc_cca_state_events(client_events)
@@ -217,6 +219,8 @@ def main():
         "packets": list(packets),
         "rtts": list(rtts),
         "cwnds": list(cwnds),
+        "inflight": list(inflights),
+        "ssthreshs": list(ssthreshs),
         "ecns": list(ecns),
         "losses": list(losses),
         "cca": list(cca),
