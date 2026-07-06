@@ -96,10 +96,10 @@ def plot(
             ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.85, linewidth=1.5)
         if inflights := data.get("inflight"):
             time, inflight = zip(*((obj["time"], obj["inflight"]) for obj in inflights))
-            ax_cwnd.plot(time, inflight, label=f"{label} Inflight", color=color, alpha=0.5, linewidth=1.0, linestyle="--")
+            ax_cwnd.plot(time, inflight, label=label, color=color, alpha=0.5, linewidth=1.0, linestyle="--")
         if ssthreshs := data.get("ssthreshs"):
             time, ssthresh = zip(*((obj["time"], (obj["ssthresh"] if obj["ssthresh"] < 2**64-1 else float("nan"))) for obj in ssthreshs))  # Replace ULONG_MAX with NaN to avoid plotting
-            ax_cwnd.step(time, ssthresh, label=f"{label} Ssthresh", color=color, alpha=0.5, linewidth=1.0, linestyle=":")
+            ax_cwnd.step(time, ssthresh, where="post", label=label, color=color, alpha=0.5, linewidth=1.0, linestyle=":")
 
         # Losses marked on the CWND axis
         if losses := data.get("losses"):
