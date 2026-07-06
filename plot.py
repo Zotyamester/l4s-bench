@@ -91,9 +91,15 @@ def plot(
             ax_rtt.plot(time_rtt, rtt, label=label, color=color, alpha=0.85, linewidth=1.5)
 
         # Congestion Window Size
-        if cwnds := data.get("cwnds"):
-            time_cwnd, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in cwnds))
-            ax_cwnd.plot(time_cwnd, cwnd, label=label, color=color, alpha=0.85, linewidth=1.5)
+        if (cwnds := data.get("cwnds")):
+            time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in cwnds))
+            ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.85, linewidth=1.5)
+        if inflights := data.get("inflight"):
+            time, inflight = zip(*((obj["time"], obj["inflight"]) for obj in inflights))
+            ax_cwnd.plot(time, inflight, label=f"{label} Inflight", color=color, alpha=0.5, linewidth=1.0, linestyle="--")
+        if ssthreshs := data.get("ssthreshs"):
+            time, ssthresh = zip(*((obj["time"], (obj["ssthresh"] if obj["ssthresh"] < 2**64-1 else float("nan"))) for obj in ssthreshs))  # Replace ULONG_MAX with NaN to avoid plotting
+            ax_cwnd.step(time, ssthresh, label=f"{label} Ssthresh", color=color, alpha=0.5, linewidth=1.0, linestyle=":")
 
         # Losses marked on the CWND axis
         if losses := data.get("losses"):
@@ -165,7 +171,7 @@ def plot(
 
         color = get_label_color(label, idx)
 
-        time, qlen = zip(*((obj["time"], obj["qlen"]) for obj in data))
+        time, qlen = zip(*((obj["time"], obj["backlog"]) for obj in data))
         ax_queue.plot(time, qlen, label=label, color=color, alpha=0.8, linewidth=1.5)
 
     # Line denoting the queue length limit
@@ -173,11 +179,9 @@ def plot(
     rtt_in_s = round_trip_time / 1e3  # ms to s conversion
     bdp = bw_in_Bps * rtt_in_s
     queue_length_limit = int(queue_length_factor * bdp)
-    MTU = 1500
-    bdp_limit_packets = queue_length_limit // MTU
 
     ax_queue.axhline(
-        bdp_limit_packets,
+        queue_length_limit,
         color="#555555",
         linestyle="--",
         linewidth=1
@@ -187,7 +191,7 @@ def plot(
     trans_queue = transforms.blended_transform_factory(ax_queue.transAxes, ax_queue.transData)
     ax_queue.text(
         0.02,
-        bdp_limit_packets,
+        queue_length_limit,
         f"Queue Length Limit ({queue_length_factor} x BDP)",
         transform=trans_queue,
         va="bottom",
@@ -275,7 +279,7 @@ def plot(
     )
 
     fig.tight_layout(pad=1.2, rect=(0, 0, 1, 0.91))
-    fig.savefig(output_file, dpi=240, bbox_inches="tight")
+    fig.savefig(output_file, dpi=480, bbox_inches="tight")
 
 
 def parse_path_label_pair(text: str):
