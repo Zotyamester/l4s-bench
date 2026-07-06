@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-DEFAULT_FIELDS = ["time", "pkts-in-l", "step-mark", "drops", "qlen", "maxq"]
+DEFAULT_FIELDS = ["time", "drops", "qlen", "backlog"]
 
 # Docs for fields (from https://github.com/torvalds/linux/blob/8fde5d1d47f69db6082dfa34500c27f8485389a5/tools/include/uapi/linux/pkt_sched.h#L33-L43):
 #   bytes: Number of enqueued bytes
