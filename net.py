@@ -41,7 +41,7 @@ class DualPI2Router(Node):
 
         intf = "eth2"
 
-        self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off")
+        self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off tx-udp-segmentation off")
         self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
@@ -50,18 +50,18 @@ class DualPI2Router(Node):
 
         info(f"\n{intf} (bottleneck link): {btl_bw} Mbps")
 
+        bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
+        rtt_in_s = rtt / 1e3  # ms to s conversion
+
+        # BDP [B] = BW [Bps] * RTT [s]
+        bdp = bw_in_Bps * rtt_in_s
+        queue_length_in_B = math.ceil(queue_length_factor * bdp)
+
         if use_dualpi2:
-            bw_in_Bps = btl_bw * 1e6 / 8  # Mbps to Bps conversion
-            rtt_in_s = rtt / 1e3  # ms to s conversion
-
-            # BDP [B] = BW [Bps] * RTT [s]
-            bdp = bw_in_Bps * rtt_in_s
-            queue_length_in_B = math.ceil(queue_length_factor * bdp)
-
             self.cmd(
-                f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2 "
+                f"tc qdisc add dev {intf} parent 1:10 handle 20: dualpi2"
                 + (
-                    manual_override
+                    f" {manual_override}"
                     if manual_override != ""
                     else (f" memlimit {queue_length_in_B}"
                           f" typical_rtt {rtt}ms"
@@ -69,6 +69,9 @@ class DualPI2Router(Node):
                           f" step_thresh {1}ms")
                 )
             )
+        else:
+            self.cmd(f"tc qdisc add dev {intf} parent 1:10 handle 20: bfifo"
+                     f"   limit {queue_length_in_B}")
 
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
 
@@ -183,7 +186,6 @@ def quinn_perf(
     **kwargs,
 ) -> dict:
     h1, h2, r0 = net["h1"], net["h2"], net["r0"]
-
 
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
