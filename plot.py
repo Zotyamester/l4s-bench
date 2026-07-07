@@ -67,7 +67,7 @@ def plot(
 ):
     plt.style.use("seaborn-v0_8-whitegrid")
 
-    fig, axes = plt.subplots(6, 1, figsize=(22, 16), sharex=True)
+    fig, axes = plt.subplots(6, 1, figsize=(24, 16), sharex=True)
     ax_owd, ax_rtt, ax_cwnd, ax_queue, ax_ecn, ax_tput = axes
 
     rtt_values = []
@@ -94,9 +94,13 @@ def plot(
         if (cwnds := data.get("cwnds")):
             time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in cwnds))
             ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.85, linewidth=1.5)
+
+        # In-flight Bytes
         if inflights := data.get("inflight"):
             time, inflight = zip(*((obj["time"], obj["inflight"]) for obj in inflights))
             ax_cwnd.plot(time, inflight, label=label, color=color, alpha=0.5, linewidth=1.0, linestyle="--")
+
+        # Slow Start Thresholds
         if ssthreshs := data.get("ssthreshs"):
             time, ssthresh = zip(*((obj["time"], (obj["ssthresh"] if obj["ssthresh"] < 2**64-1 else float("nan"))) for obj in ssthreshs))  # Replace ULONG_MAX with NaN to avoid plotting
             ax_cwnd.step(time, ssthresh, where="post", label=label, color=color, alpha=0.5, linewidth=1.0, linestyle=":")
@@ -143,8 +147,24 @@ def plot(
 
         # ECN Congestion Experienced
         if ecns := data.get("ecns"):
-            time_ecn, ecns = zip(*((obj["time"], obj["congestion_experienced"]) for obj in ecns))
-            ax_ecn.scatter(time_ecn, ecns, label=label, color=color, s=12, alpha=0.7)
+            ecn_times, ect0, ect1, ce = zip(*((obj["time"], obj["ect0"], obj["ect1"], obj["ce"]) for obj in ecns))
+            if any(ect1):
+                ax_ecn.scatter(ecn_times, ce, label=label, color=color, s=12, alpha=0.7)
+            elif any(ect0):
+                ecn_cwnds = [get_cwnd_at_time(data["cwnds"], time) for time, ce in zip(ecn_times, ce) if ce > 0]
+                ax_cwnd.scatter(ecn_times, ecn_cwnds, label=label, color=color, s=12, alpha=0.7)
+
+                # Marking ECN events on the cwnd line
+                ax_cwnd.scatter(
+                    ecn_times,
+                    ecn_cwnds,
+                    marker="v",
+                    color="#1f77b4",  # Highlight ECNs in blue
+                    edgecolors="black",
+                    s=80,
+                    zorder=5,
+                    label=label
+                )
 
         # Estimated Throughput (in Mbps)
         pkt_data = [(obj["time"], obj)
@@ -192,7 +212,7 @@ def plot(
     ax_queue.text(
         0.02,
         queue_length_limit,
-        f"Queue Length Limit ({queue_length_factor} x BDP)",
+        f"Queue Length Limit ({queue_length_factor} x BDP = {queue_length_limit} B)",
         transform=trans_queue,
         va="bottom",
         ha="left",
@@ -247,7 +267,7 @@ def plot(
     ax_cwnd.set_ylabel("Congestion Window [byte]")
     ax_cwnd.set_ylim(bottom=0)
 
-    ax_queue.set_ylabel("Queue Length [packet]")
+    ax_queue.set_ylabel("Queue Length [byte]")
     ax_queue.set_ylim(bottom=0)
 
     ax_ecn.set_ylabel("ECN CE Count [#]")

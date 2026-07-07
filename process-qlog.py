@@ -106,7 +106,9 @@ def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
             "time": event["time"],
-            "congestion_experienced": description[1].split(",")[2].split("=")[1],
+            "ect0": int(description[1].split(",")[0].split("=")[1]),
+            "ect1": int(description[1].split(",")[1].split("=")[1]),
+            "ce": int(description[1].split(",")[2].split("=")[1]),
         }
         for event in events
         if event.get("name") == "quic:congestion_state_updated"  # for sanitization
