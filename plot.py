@@ -2,10 +2,23 @@
 
 import argparse
 import bisect
+import colorsys
 import json
 import sys
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
+
+
+def adjust_lightness(color, amount):
+    """Adjust the lightness of a matplotlib-compatible color.
+
+    amount > 1.0 makes the color lighter, < 1.0 makes it darker.
+    """
+    rgb = mcolors.to_rgb(color)
+    h, l, s = colorsys.rgb_to_hls(*rgb)
+    l = max(0.0, min(1.0, l * amount))
+    return colorsys.hls_to_rgb(h, l, s)
 
 
 def calculate_throughput_estimates(packets: list[dict], alpha: float = 0.1) -> list[float]:
@@ -107,20 +120,24 @@ def plot(
             rtt_values.extend(rtt)
             ax_rtt.plot(time_rtt, rtt, label=label, color=color, alpha=0.85, linewidth=1.5)
 
+        # Get distinct shades dynamically from the primary protocol color
+        inflight_color = adjust_lightness(color, 1.3)  # 30% lighter
+        ssthresh_color = adjust_lightness(color, 0.6)  # 40% darker
+
         # Congestion Window Size
         if (cwnds := data.get("cwnds")):
             time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in cwnds))
-            ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.85, linewidth=1.5)
+            ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.9, linewidth=2.0)
 
         # In-flight Bytes
         if inflights := data.get("inflight"):
             time, inflight = zip(*((obj["time"], obj["inflight"]) for obj in inflights))
-            ax_cwnd.plot(time, inflight, label=label, color=color, alpha=0.5, linewidth=1.0, linestyle="--")
+            ax_cwnd.plot(time, inflight, label=label, color=inflight_color, alpha=0.7, linewidth=1.2, linestyle="--")
 
         # Slow Start Thresholds
         if ssthreshs := data.get("ssthreshs"):
             time, ssthresh = zip(*((obj["time"], (obj["ssthresh"] if obj["ssthresh"] < 2**64-1 else float("nan"))) for obj in ssthreshs))  # Replace ULONG_MAX with NaN to avoid plotting
-            ax_cwnd.step(time, ssthresh, where="post", label=label, color=color, alpha=0.5, linewidth=1.0, linestyle=":")
+            ax_cwnd.step(time, ssthresh, where="post", label=label, color=ssthresh_color, alpha=0.85, linewidth=1.5, linestyle="-.")
 
         # Losses marked on the CWND axis
         if losses := data.get("losses"):
