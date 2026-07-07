@@ -8,24 +8,41 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 
 
+def calculate_throughput_estimates(packets: list[dict], alpha: float = 0.1) -> list[float]:
+    """Calculate exponentially weighted moving average throughput in bps."""
+    throughputs = []
 
-def calculate_throughput_windows(packets: list[dict], time_window_ms: float) -> list[float]:
-    """Calculate moving average throughput in bps."""
-    tputs = []
+    def instant_throughput(pkt1, pkt2):
+        """Calculate instantaneous throughput based on the difference in the reception of two adjacent packets."""
 
-    window_start = 0
-    window_byte_sum = 0
-    window_end = 0
-    while window_end < len(packets):
-        window_byte_sum += packets[window_end]["packet_length"]
-        while window_start < window_end and packets[window_end]["time"] - packets[window_start]["time"] > time_window_ms:
-            window_byte_sum -= packets[window_start]["packet_length"]
-            window_start += 1
-        tput = window_byte_sum * 8 / (time_window_ms / 1000)
-        tputs.append(tput)
-        window_end += 1
+        pkt2_size = pkt2["packet_length"] * 8  # in bits
 
-    return tputs
+        pkt2_reception = pkt2["time"] + pkt2["one_way_delay_ms"]
+        pkt1_reception = pkt1["time"] + pkt1["one_way_delay_ms"]
+        time_difference = (pkt2_reception - pkt1_reception) / 1e3  # Convert ms to seconds
+
+        throughput = pkt2_size / (time_difference + sys.float_info.epsilon)  # Add epsilon to avoid division by zero
+        return throughput
+
+    packets = sorted(filter(lambda pkt: pkt["packet_type"] == "1RTT", packets), key=lambda pkt: pkt["time"] + pkt["one_way_delay_ms"])
+    adjacent_packets = zip(packets, packets[1:])
+
+    # Handle the initial value separately
+    first_packet_pair = next(adjacent_packets, None)
+    if first_packet_pair is None:
+        return None
+    throughput = instant_throughput(*first_packet_pair)
+    throughput_average = throughput  # Initially, the average equals the one and only value
+    throughputs.append(0.0)  # For the first packet, there throughput is indefinite
+    throughputs.append(throughput_average)
+
+    # Handle the rest uniformly
+    for pkt1, pkt2 in adjacent_packets:
+        throughput = instant_throughput(pkt1, pkt2)
+        throughput_average += (throughput - throughput_average) * alpha
+        throughputs.append(throughput_average)
+
+    return throughputs
 
 
 def get_cwnd_at_time(cwnds: list[dict], target_time: float) -> float:
@@ -171,7 +188,7 @@ def plot(
                     for obj in data["packets"] if obj["packet_type"] == "1RTT"]
         if pkt_data:
             time_pkt, packets = zip(*pkt_data)
-            throughputs = calculate_throughput_windows(packets, 10000)
+            throughputs = calculate_throughput_estimates(packets)
             throughputs_mbps = [t / 1e6 for t in throughputs]
             ax_tput.plot(time_pkt, throughputs_mbps, label=label, color=color, alpha=0.85, linewidth=1.5)
 
