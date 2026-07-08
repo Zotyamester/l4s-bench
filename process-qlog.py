@@ -102,6 +102,19 @@ def proc_cca_state_events(events: Iterable[dict]) -> Iterable[dict]:
     return states
 
 
+def proc_l4s_events(events: Iterable[dict]) -> Iterable[dict]:
+    return (
+        {
+            "time": event["time"],
+            "alpha": float(description[1].split("=")[1]),
+        }
+        for event in events
+        if event.get("name") == "quic:congestion_state_updated"  # for sanitization
+        and (description := event["data"]["new"].split(":"))
+        and description[0] == "ALPHA"
+    )
+
+
 def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
@@ -115,7 +128,6 @@ def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
         and (description := event["data"]["new"].split(":"))
         and description[0] == "ECN"
     )
-
 
 def proc_loss_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
@@ -211,6 +223,7 @@ def main():
     rtts = proc_recov_metrics(cwnd_events, field="latest_rtt", name="rtt")
     inflights = proc_recov_metrics(cwnd_events, field="bytes_in_flight", name="inflight")
     ssthreshs = proc_recov_metrics(cwnd_events, field="ssthresh", name="ssthresh")
+    l4s = proc_l4s_events(cong_events)
     ecns = proc_ecn_events(cong_events)
     losses = proc_loss_events(cong_events)
     cca = proc_cca_state_events(client_events)
@@ -223,6 +236,7 @@ def main():
         "cwnds": list(cwnds),
         "inflight": list(inflights),
         "ssthreshs": list(ssthreshs),
+        "l4s": list(l4s),
         "ecns": list(ecns),
         "losses": list(losses),
         "cca": list(cca),

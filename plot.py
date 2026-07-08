@@ -181,10 +181,8 @@ def plot(
 
         # ECN Congestion Experienced
         if ecns := data.get("ecns"):
-            ecn_times, ect0, ect1, ce = zip(*((obj["time"], obj["ect0"], obj["ect1"], obj["ce"]) for obj in ecns))
-            if any(ect1):
-                ax_ecn.scatter(ecn_times, ce, label=label, color=color, s=12, alpha=0.7)
-            elif any(ect0):
+            ecn_times, ect0, ce = zip(*((obj["time"], obj["ect0"], obj["ce"]) for obj in ecns))
+            if any(ect0):
                 ecn_cwnds = [get_cwnd_at_time(data["cwnds"], time) for time, ce in zip(ecn_times, ce) if ce > 0]
                 ax_cwnd.scatter(ecn_times, ecn_cwnds, label=label, color=color, s=12, alpha=0.7)
 
@@ -199,6 +197,11 @@ def plot(
                     zorder=5,
                     label=label
                 )
+
+        # L4S Alpha Values
+        if l4s := data.get("l4s"):
+            time, alphas = zip(*((obj["time"], obj["alpha"]) for obj in l4s))
+            ax_ecn.plot(time, alphas, label=label, color=color, alpha=0.85, linewidth=1.5)
 
         # Estimated Throughput (in Mbps)
         pkt_data = [(obj["time"], obj)
