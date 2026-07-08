@@ -53,6 +53,7 @@ def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> lis
     # Handle the rest uniformly
     for pkt1, pkt2 in adjacent_packets:
         throughput = instant_throughput(pkt1, pkt2)
+        # α_i = 1 - e^{-Δt_i/τ}
         alpha = 1 - math.exp(-((pkt2["time"] + pkt2["one_way_delay_ms"]) - (pkt1["time"] + pkt1["one_way_delay_ms"]) + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
         throughput_average += (throughput - throughput_average) * alpha
         throughputs.append(throughput_average)
@@ -274,9 +275,32 @@ def plot(
     ax_tput.text(
         0.02,
         bandwidth,
-        "Bandwidth",
+        f"Bandwidth Limit ({bandwidth} Mbps)",
         transform=trans_tput,
         va="bottom",
+        ha="left",
+        fontsize=9,
+        color="#555555",
+        weight=700,
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+    )
+
+    # Line denoting the base round-trip time on round-trip-time axis once
+    ax_rtt.axhline(
+        round_trip_time,
+        color="#555555",
+        linestyle="--",
+        linewidth=1
+    )
+
+    # Text label above the round-trip time line
+    trans_rtt = transforms.blended_transform_factory(ax_rtt.transAxes, ax_rtt.transData)
+    ax_rtt.text(
+        0.02,
+        round_trip_time,
+        f"Base Round-Trip Time ({round_trip_time} ms)",
+        transform=trans_rtt,
+        va="top",
         ha="left",
         fontsize=9,
         color="#555555",
