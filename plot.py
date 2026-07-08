@@ -5,6 +5,7 @@ import bisect
 import colorsys
 import json
 import sys
+import math
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
@@ -21,7 +22,7 @@ def adjust_lightness(color, amount):
     return colorsys.hls_to_rgb(h, l, s)
 
 
-def calculate_throughput_estimates(packets: list[dict], alpha: float = 0.1) -> list[float]:
+def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> list[float]:
     """Calculate exponentially weighted moving average throughput in bps."""
     throughputs = []
 
@@ -52,6 +53,7 @@ def calculate_throughput_estimates(packets: list[dict], alpha: float = 0.1) -> l
     # Handle the rest uniformly
     for pkt1, pkt2 in adjacent_packets:
         throughput = instant_throughput(pkt1, pkt2)
+        alpha = 1 - math.exp(-((pkt2["time"] + pkt2["one_way_delay_ms"]) - (pkt1["time"] + pkt1["one_way_delay_ms"]) + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
         throughput_average += (throughput - throughput_average) * alpha
         throughputs.append(throughput_average)
 
@@ -208,7 +210,7 @@ def plot(
                     for obj in data["packets"] if obj["packet_type"] == "1RTT"]
         if pkt_data:
             time_pkt, packets = zip(*pkt_data)
-            throughputs = calculate_throughput_estimates(packets)
+            throughputs = calculate_throughput_estimates(packets, tau=round_trip_time * 4.0)  # Using 4 RTT as tau for smoothing
             throughputs_mbps = [t / 1e6 for t in throughputs]
             ax_tput.plot(time_pkt, throughputs_mbps, label=label, color=color, alpha=0.85, linewidth=1.5)
 
