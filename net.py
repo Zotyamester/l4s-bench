@@ -204,6 +204,7 @@ def quinn_perf(
         f"       --congestion {algorithm}"
         f"       --json -"
         f"       --qlog '{out_dir}/h1.qlog'"
+        f"       --upload-size {256}M"
         f"       --duration {duration}"
         f"       --interval {1}"
         f"       h2:{4433}"
