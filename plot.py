@@ -333,7 +333,7 @@ def plot(
     ax_queue.set_ylabel("Queue Length [byte]")
     ax_queue.set_ylim(bottom=0)
 
-    ax_ecn.set_ylabel("ECN CE Count [#]")
+    ax_ecn.set_ylabel("Prague Alpha [#]")
     ax_ecn.set_ylim(bottom=0)
 
     ax_tput.set_ylabel("Throughput [Mbps]")
