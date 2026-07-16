@@ -225,14 +225,15 @@ def plot(
         rtt_avg = round_trip_time if round_trip_time else 10.0
 
     # Process and plot queue data
-    for idx, (queue_file, label) in enumerate(queue_files):
-        with open(queue_file, "r") as f:
-            data = json.load(f)
+    if queue_files:
+        for idx, (queue_file, label) in enumerate(queue_files):
+            with open(queue_file, "r") as f:
+                data = json.load(f)
 
-        color = get_label_color(label, idx)
+            color = get_label_color(label, idx)
 
-        time, qlen = zip(*((obj["time"], obj["backlog"]) for obj in data))
-        ax_queue.plot(time, qlen, label=label, color=color, alpha=0.8, linewidth=1.5)
+            time, qlen = zip(*((obj["time"], obj["backlog"]) for obj in data))
+            ax_queue.plot(time, qlen, label=label, color=color, alpha=0.8, linewidth=1.5)
 
     # Line denoting the queue length limit
     bw_in_Bps = bandwidth * 1e6 / 8  # Mbps to Bps conversion
@@ -333,7 +334,7 @@ def plot(
     ax_queue.set_ylabel("Queue Length [byte]")
     ax_queue.set_ylim(bottom=0)
 
-    ax_ecn.set_ylabel("Prague Alpha [#]")
+    ax_ecn.set_ylabel("Prague Alpha")
     ax_ecn.set_ylim(bottom=0)
 
     ax_tput.set_ylabel("Throughput [Mbps]")
@@ -362,7 +363,7 @@ def plot(
     )
 
     fig.tight_layout(pad=1.2, rect=(0, 0, 1, 0.91))
-    fig.savefig(output_file, dpi=480, bbox_inches="tight")
+    fig.savefig(output_file, dpi=240, bbox_inches="tight")
 
 
 def parse_path_label_pair(text: str):
@@ -411,7 +412,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.qlogs and args.queues:
+    if args.qlogs:
         plot(
             args.qlogs,
             args.queues,
@@ -423,6 +424,6 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         parser.error(
-            "--qlog, --queue, --bandwidth, and --round-trip-time must be given"
+            "--qlog, --bandwidth, --round-trip-time, and --queue-length-factor must be given"
         )
         sys.exit(1)
