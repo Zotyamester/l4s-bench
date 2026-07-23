@@ -163,14 +163,14 @@ def iperf(
             else ""
         )
         + (
-            f"( mount -t debugfs none /sys/kernel/debug && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->dport == {5201}/ {{ printf(\\\"%llu %u %u %u %u\\n\\\", nsecs, args->snd_cwnd, args->snd_nxt, args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & );"
+            f"( mount -t tracefs none /sys/kernel/tracing && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->sport == {1234}/ {{ printf(\"%llu %u %u %u\\n\", nsecs, args->snd_cwnd, args->snd_nxt - args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & ); "
             if bpf
             else ""
         )
         + f"iperf3 --client {h2.IP()}"
+        f"       --cport {1234}"
         f"       --congestion {algorithm}"
         f"       --json"
-        f"       --logfile '{out_dir}/h2.log'"
         f"       --time {duration}"
         f"       --interval {1}"
     )

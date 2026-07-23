@@ -82,7 +82,7 @@ ip netns exec ns2 iperf3 --server --daemon
 sleep 1
 
 # Start TCP CWND monitoring on the client
-mountpoint -q /sys/kernel/debug/ || mount -t debugfs none /sys/kernel/debug
+mountpoint -q /sys/kernel/debug/ || mount -t tracefs none /sys/kernel/tracing
 trace_file=$(mktemp)
 bpftrace -qe 'tracepoint:tcp:tcp_probe /args->sport == 1234/ { printf("%llu %u %u %u\n", nsecs, args->snd_cwnd, args->snd_nxt - args->snd_una, args->srtt); }' > "$trace_file" &
 BPF_PID=$!
