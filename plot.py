@@ -239,6 +239,7 @@ def plot(
     bw_in_Bps = bandwidth * 1e6 / 8  # Mbps to Bps conversion
     rtt_in_s = round_trip_time / 1e3  # ms to s conversion
     bdp = bw_in_Bps * rtt_in_s
+    bdp_truncated = int(bdp)
     queue_length_limit = int(queue_length_factor * bdp)
 
     ax_queue.axhline(
@@ -255,6 +256,28 @@ def plot(
         queue_length_limit,
         f"Queue Length Limit ({queue_length_factor} x BDP = {queue_length_limit} B)",
         transform=trans_queue,
+        va="bottom",
+        ha="left",
+        fontsize=9,
+        color="#555555",
+        weight=700,
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+    )
+
+    ax_cwnd.axhline(
+        bdp_truncated,
+        color="#555555",
+        linestyle="--",
+        linewidth=1
+    )
+
+    # Text label above the CWND line
+    trans_bdp = transforms.blended_transform_factory(ax_cwnd.transAxes, ax_cwnd.transData)
+    ax_cwnd.text(
+        0.02,
+        bdp_truncated,
+        f"Bandwidth-Delay Product {bdp_truncated} B)",
+        transform=trans_bdp,
         va="bottom",
         ha="left",
         fontsize=9,
