@@ -19,10 +19,10 @@ mkdir -p $OUT/results/{prague,new-reno}
 
 . .venv/bin/activate # for matplotlib only
 ./plot.py \
-    --qlog $OUT/results/prague/qlog.json:prague \
     --qlog $OUT/results/new-reno/qlog.json:new-reno \
-    --queue $OUT/results/prague/queues.json:prague \
+    --qlog $OUT/results/prague/qlog.json:prague \
     --queue $OUT/results/new-reno/queues.json:new-reno \
+    --queue $OUT/results/prague/queues.json:prague \
     --queue-length-factor $QLEN_FACTOR \
     --bandwidth $BW \
     --round-trip-time $((4*$DELAY)) \
