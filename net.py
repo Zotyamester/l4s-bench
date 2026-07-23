@@ -236,7 +236,7 @@ def run(
     :param benchmark: The benchmarking function to be exectued instead of entering to CLI mode.
     """
 
-    rtt = 2 * 2 * last_mile_delay + 1  # 2 * (D_H1->S1 + D_S2->H2) + D_PROC
+    rtt = 2 * 2 * last_mile_delay  # 2 * (D_H1->S1 + D_S2->H2)
 
     topo = L4STopo(
         endpoint_params=dict(),
