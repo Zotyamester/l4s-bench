@@ -175,7 +175,11 @@ def iperf(
         f"       --interval {1}"
     )
 
-    return json.loads(client_output)
+    try:
+        return json.loads(client_output)
+    except json.JSONDecodeError as e:
+        error(f"Couldn't decode iperf3 output: {e}")
+        return {}
 
 
 def quinn_perf(
@@ -210,7 +214,11 @@ def quinn_perf(
         f"       h2:{4433}"
     )
 
-    return json.loads(client_output.splitlines()[-1])
+    try:
+        return json.loads(client_output.splitlines()[-1])
+    except json.JSONDecodeError as e:
+        error(f"Couldn't decode quinn-perf output: {e}")
+        return {}
 
 
 def run(
