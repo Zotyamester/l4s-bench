@@ -68,40 +68,6 @@ def proc_rtt_events(events: Iterable[dict]) -> Iterable[dict]:
     )
 
 
-def proc_cca_state_events(events: Iterable[dict]) -> Iterable[dict]:
-    states = [{"time": 0.0, "state": "SS"}]
-
-    for event in events:
-        current_state = states[-1]["state"]
-        if (name := event.get("name")) == "quic:recovery_metrics_updated":
-            cwnd = event["data"].get("congestion_window")
-            ssthresh = event["data"].get("ssthresh")
-
-            if cwnd is None or ssthresh is None:
-                continue
-
-            if cwnd < ssthresh:
-                # A NewReno sender is in slow start any time the congestion
-                # window is below the slow start threshold.
-                if current_state != "SS":
-                    states.append({"time": event["time"], "state": "SS"})
-            else:
-                # A NewReno sender is in congestion avoidance any time the
-                # congestion window is at or above the slow start threshold and
-                # not in a recovery period.
-                if current_state != "RECOV" and current_state != "CA":
-                    states.append({"time": event["time"], "state": "CA"})
-        elif name == "quic:congestion_state_updated":
-            # A NewReno sender enters a recovery period when it detects the
-            # loss of a packet or when the ECN-CE count reported by its peer
-            # increases.  A sender that is already in a recovery period stays
-            # in it and does not reenter it.
-            if current_state != "RECOV":
-                states.append({"time": event["time"], "state": "RECOV"})
-
-    return states
-
-
 def proc_l4s_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
@@ -226,7 +192,6 @@ def main():
     l4s = proc_l4s_events(cong_events)
     ecns = proc_ecn_events(cong_events)
     losses = proc_loss_events(cong_events)
-    cca = proc_cca_state_events(client_events)
 
     connected = connect_pkt_event_pairs(sent, rcvd)
     packets = merge_pkt_event_pairs(connected)
@@ -239,7 +204,6 @@ def main():
         "l4s": list(l4s),
         "ecns": list(ecns),
         "losses": list(losses),
-        "cca": list(cca),
     }
     print(json.dumps(result))
 
