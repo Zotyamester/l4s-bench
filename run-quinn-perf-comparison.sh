@@ -9,13 +9,13 @@ DURATION=${DURATION:-60}
 set -o xtrace
 set -e
 
-mkdir -p $OUT/results/{prague,new-reno}
-./net.py --out-dir $OUT/results/prague --quic-benchmark --algorithm prague --bottleneck-bandwidth $BW --last-mile-delay $DELAY --measurement-duration $DURATION
+mkdir -p $OUT/results/{new-reno,prague}
 ./net.py --out-dir $OUT/results/new-reno --quic-benchmark --algorithm new-reno --bottleneck-bandwidth $BW --last-mile-delay $DELAY --measurement-duration $DURATION
-./process-qlog.py --client $OUT/results/prague/h1.qlog --server $OUT/results/prague/h2.qlog > $OUT/results/prague/qlog.json
+./net.py --out-dir $OUT/results/prague   --quic-benchmark --algorithm prague   --bottleneck-bandwidth $BW --last-mile-delay $DELAY --measurement-duration $DURATION
 ./process-qlog.py --client $OUT/results/new-reno/h1.qlog --server $OUT/results/new-reno/h2.qlog > $OUT/results/new-reno/qlog.json
-./process-queues.py --kind dualpi2 $OUT/results/prague/queues.jsonl > $OUT/results/prague/queues.json
+./process-qlog.py --client $OUT/results/prague/h1.qlog --server $OUT/results/prague/h2.qlog > $OUT/results/prague/qlog.json
 ./process-queues.py --kind dualpi2 $OUT/results/new-reno/queues.jsonl > $OUT/results/new-reno/queues.json
+./process-queues.py --kind dualpi2 $OUT/results/prague/queues.jsonl > $OUT/results/prague/queues.json
 
 . .venv/bin/activate # for matplotlib only
 ./plot.py \
