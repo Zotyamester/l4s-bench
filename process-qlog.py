@@ -95,6 +95,7 @@ def proc_ecn_events(events: Iterable[dict]) -> Iterable[dict]:
         and description[0] == "ECN"
     )
 
+
 def proc_loss_events(events: Iterable[dict]) -> Iterable[dict]:
     return (
         {
@@ -138,11 +139,10 @@ def connect_pkt_event_pairs(
 def merge_pkt_event_pairs(pairs: list[tuple[dict, dict]]) -> list[dict]:
     return [
         {
-            "time": recv["time"],
+            "send_time": send["time"],
+            "recv_time": recv["time"],
             "packet_type": send["id"][0],
-            "packet_number": send["id"][1],
             "packet_length": send["length"],
-            "one_way_delay_ms": recv["time"] - send["time"],
         }
         for send, recv in pairs
     ]

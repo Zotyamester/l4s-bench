@@ -31,14 +31,12 @@ def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> lis
 
         pkt2_size = pkt2["packet_length"] * 8  # in bits
 
-        pkt2_reception = pkt2["time"] + pkt2["one_way_delay_ms"]
-        pkt1_reception = pkt1["time"] + pkt1["one_way_delay_ms"]
-        time_difference = (pkt2_reception - pkt1_reception) / 1e3  # Convert ms to seconds
+        dispersion = (pkt2["recv_time"] - pkt1["recv_time"]) / 1e3  # Convert ms to seconds
 
-        throughput = pkt2_size / (time_difference + sys.float_info.epsilon)  # Add epsilon to avoid division by zero
+        throughput = pkt2_size / (dispersion + sys.float_info.epsilon)  # Add epsilon to avoid division by zero
         return throughput
 
-    packets = sorted(filter(lambda pkt: pkt["packet_type"] == "1RTT", packets), key=lambda pkt: pkt["time"] + pkt["one_way_delay_ms"])
+    packets = sorted(filter(lambda pkt: pkt["packet_type"] == "1RTT", packets), key=lambda pkt: pkt["recv_time"])
     adjacent_packets = zip(packets, packets[1:])
 
     # Handle the initial value separately
@@ -53,8 +51,8 @@ def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> lis
     # Handle the rest uniformly
     for pkt1, pkt2 in adjacent_packets:
         throughput = instant_throughput(pkt1, pkt2)
-        # α_i = 1 - e^{-Δt_i/τ}
-        alpha = 1 - math.exp(-((pkt2["time"] + pkt2["one_way_delay_ms"]) - (pkt1["time"] + pkt1["one_way_delay_ms"]) + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
+        # alpha_i = 1 - e^{-dt_i/tau}
+        alpha = 1 - math.exp(-(pkt2["recv_time"] - pkt1["recv_time"] + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
         throughput_average += (throughput - throughput_average) * alpha
         throughputs.append(throughput_average)
 
@@ -101,7 +99,7 @@ def plot(
     plt.style.use("seaborn-v0_8-whitegrid")
 
     fig, axes = plt.subplots(6, 1, figsize=(24, 16), sharex=True)
-    ax_owd, ax_rtt, ax_cwnd, ax_queue, ax_ecn, ax_tput = axes
+    ax_rcvlen, ax_rtt, ax_cwnd, ax_queue, ax_ecn, ax_tput = axes
 
     rtt_values = []
 
@@ -112,10 +110,11 @@ def plot(
 
         color = get_label_color(label, idx)
 
-        # One-Way Delay (only for 1RTT packets)
+        # Received Packet Length
         if packets := data.get("packets"):
-            time_owd, owd = zip(*((obj["time"], obj["one_way_delay_ms"]) for obj in packets if obj["packet_type"] == "1RTT"))
-            ax_owd.plot(time_owd, owd, label=label, color=color, alpha=0.85, linewidth=1.5)
+            time, pktlen = zip(*((obj["recv_time"], obj["packet_length"]) for obj in packets))
+            ax_rcvlen.scatter(time, pktlen, label=label, color=color, alpha=0.9, s=0.15)
+            ax_rcvlen.vlines(time, 0, 600, label=label, color=color, alpha=0.6, linewidth=0.075)
 
         # Round-Trip Time
         if rtts := data.get("rtts"):
@@ -207,7 +206,7 @@ def plot(
             ax_ecn.plot(time, alphas, label=label, color=color, alpha=0.85, linewidth=1.5)
 
         # Estimated Throughput (in Mbps)
-        pkt_data = [(obj["time"], obj)
+        pkt_data = [(obj["recv_time"], obj)
                     for obj in data["packets"] if obj["packet_type"] == "1RTT"]
         if pkt_data:
             time_pkt, packets = zip(*pkt_data)
@@ -345,8 +344,8 @@ def plot(
         ax.yaxis.label.set_weight("bold")
 
     # Set specific labels and limits
-    ax_owd.set_ylabel("One-Way Delay [ms]")
-    ax_owd.set_ylim(bottom=0, top=max(5.0, rtt_p95 / 2 + (rtt_avg / 2)))
+    ax_rcvlen.set_ylabel("Received Packet Length [B]")
+    ax_rcvlen.set_ylim(bottom=0)
 
     ax_rtt.set_ylabel("Round-Trip Time [ms]")
     ax_rtt.set_ylim(bottom=0, top=max(10.0, rtt_p95 + rtt_avg))
