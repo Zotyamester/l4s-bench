@@ -64,9 +64,7 @@ class DualPI2Router(Node):
                     f" {manual_override}"
                     if manual_override != ""
                     else (f" memlimit {queue_length_in_B}"
-                          f" typical_rtt {rtt}ms"
-                          f" target {5}ms"
-                          f" step_thresh {1}ms")
+                          f" typical_rtt {rtt}ms")
                 )
             )
         else:
