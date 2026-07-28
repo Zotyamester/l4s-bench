@@ -26,35 +26,36 @@ def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> lis
     """Calculate exponentially weighted moving average throughput in bps."""
     throughputs = []
 
-    def instant_throughput(pkt1, pkt2):
+    def instant_throughput(pkt1: dict, pkt2: dict) -> float | None:
         """Calculate instantaneous throughput based on the difference in the reception of two adjacent packets."""
 
         pkt2_size = pkt2["packet_length"] * 8  # in bits
 
         dispersion = (pkt2["recv_time"] - pkt1["recv_time"]) / 1e3  # Convert ms to seconds
 
-        throughput = pkt2_size / (dispersion + sys.float_info.epsilon)  # Add epsilon to avoid division by zero
+        if dispersion < 1e-9:
+            return None  # Refuse to calculate throughput when it's completely unrealistic (i.e., dispresion < 1 ns)
+        throughput = pkt2_size / dispersion
         return throughput
 
     packets = sorted(filter(lambda pkt: pkt["packet_type"] == "1RTT", packets), key=lambda pkt: pkt["recv_time"])
     adjacent_packets = zip(packets, packets[1:])
 
     # Handle the initial value separately
-    first_packet_pair = next(adjacent_packets, None)
-    if first_packet_pair is None:
-        return None
-    throughput = instant_throughput(*first_packet_pair)
-    throughput_average = throughput  # Initially, the average equals the one and only value
-    throughputs.append(0.0)  # For the first packet, there throughput is indefinite
+    throughput = 0.0
+    throughput_average = throughput
     throughputs.append(throughput_average)
 
     # Handle the rest uniformly
     for pkt1, pkt2 in adjacent_packets:
         throughput = instant_throughput(pkt1, pkt2)
-        # alpha_i = 1 - e^{-dt_i/tau}
-        alpha = 1 - math.exp(-(pkt2["recv_time"] - pkt1["recv_time"] + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
-        throughput_average += (throughput - throughput_average) * alpha
-        throughputs.append(throughput_average)
+        if throughput is not None:
+            # alpha_i = 1 - e^{-dt_i/tau}
+            alpha = 1 - math.exp(-(pkt2["recv_time"] - pkt1["recv_time"] + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
+            throughput_average += (throughput - throughput_average) * alpha
+            throughputs.append(throughput_average)
+        else:
+            throughputs.append(throughput_average)
 
     return throughputs
 
@@ -204,6 +205,70 @@ def plot(
         if l4s := data.get("l4s"):
             time, alphas = zip(*((obj["time"], obj["alpha"]) for obj in l4s))
             ax_ecn.plot(time, alphas, label=label, color=color, alpha=0.85, linewidth=1.5)
+
+            # Find when alpha got to 1.0 (or first alpha == 1.0)
+            target_l4s = next((obj for obj in l4s if obj["alpha"] >= 1.0 - 1e-6), l4s[0])
+            t_alpha_1 = target_l4s["time"]
+            alpha_val = target_l4s["alpha"]
+
+            if packets := data.get("packets"):
+                recv_until = [p for p in packets if p["recv_time"] <= t_alpha_1]
+                cum_pkts = len(recv_until)
+                cum_bytes = sum(p["packet_length"] for p in recv_until)
+
+                # Plot cumulative received bytes behind the alpha plot
+                sorted_pkts = sorted(packets, key=lambda p: p["recv_time"])
+                pkt_times = [p["recv_time"] for p in sorted_pkts]
+                cum_bytes_list = []
+                running_bytes = 0
+                for p in sorted_pkts:
+                    running_bytes += p["packet_length"]
+                    cum_bytes_list.append(running_bytes / 1024.0)  # KiB
+
+                if not hasattr(ax_ecn, "twin_bytes"):
+                    ax_ecn.twin_bytes = ax_ecn.twinx()
+                    ax_ecn.twin_bytes.set_ylabel("Cumulative Recv [KiB]", color="#666666", fontsize=11, fontweight="bold")
+                    ax_ecn.twin_bytes.tick_params(colors="#444444", labelsize=10)
+                    ax_ecn.twin_bytes.grid(False)
+
+                cum_color = adjust_lightness(color, 1.2)
+                ax_ecn.twin_bytes.plot(
+                    pkt_times, cum_bytes_list,
+                    color=cum_color, linestyle="--", linewidth=1.2, alpha=0.5,
+                    label=f"{label} (cum. KiB)"
+                )
+                ax_ecn.twin_bytes.set_ylim(bottom=0)
+
+                # Text note drawn right next to the initialization of alpha (first value)
+                if cum_bytes >= 1024 * 1024:
+                    bytes_str = f"{cum_bytes / (1024 * 1024):.2f} MiB ({cum_bytes:,} B)"
+                elif cum_bytes >= 1024:
+                    bytes_str = f"{cum_bytes / 1024:.1f} KiB ({cum_bytes:,} B)"
+                else:
+                    bytes_str = f"{cum_bytes:,} B"
+
+                note_text = (
+                    f"alpha={alpha_val:.1f} at {t_alpha_1:.1f} ms\n"
+                    f"Cumulative Recv:\n"
+                    f"- {cum_pkts:,} packets\n"
+                    f"- {bytes_str}"
+                )
+
+                ax_ecn.scatter([t_alpha_1], [alpha_val], color=color, s=50, zorder=5)
+                ax_ecn.axvline(t_alpha_1, color=color, linestyle=":", alpha=0.6, linewidth=1.2)
+
+                ax_ecn.annotate(
+                    note_text,
+                    xy=(t_alpha_1, alpha_val),
+                    xytext=(25, -20 if idx % 2 == 0 else 10),
+                    textcoords="offset points",
+                    fontsize=8.5,
+                    fontweight="bold",
+                    color="#222222",
+                    bbox=dict(boxstyle="round,pad=0.35", fc="#ffffff", ec=color, alpha=0.9, lw=1.2),
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.15", color=color, lw=1.2),
+                    zorder=6
+                )
 
         # Estimated Throughput (in Mbps)
         pkt_data = [(obj["recv_time"], obj)
