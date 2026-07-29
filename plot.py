@@ -119,7 +119,7 @@ def plot(
     plt.style.use("seaborn-v0_8-whitegrid")
 
     fig, axes = plt.subplots(6, 1, figsize=(24, 16), sharex=True)
-    ax_rcvlen, ax_rtt, ax_cwnd, ax_queue, ax_ecn, ax_tput = axes
+    ax_rcvlen, ax_rtt, ax_cwnd, ax_queue, ax_alpha, ax_tput = axes
 
     rtt_values = []
 
@@ -250,8 +250,8 @@ def plot(
         # L4S Alpha Values
         if l4s := data.get("l4s"):
             time, alphas = zip(*((obj["time"], obj["alpha"]) for obj in l4s))
-            ax_ecn.plot(time, alphas, label=label,
-                        color=color, alpha=0.85, linewidth=1.5)
+            ax_alpha.plot(time, alphas, label=label, color=color, alpha=0.85,
+                          linewidth=1.5)
 
             # Find when alpha got to 1.0 (or first alpha == 1.0)
             target_l4s = next(
@@ -274,22 +274,22 @@ def plot(
                     running_bytes += p["packet_length"]
                     cum_bytes_list.append(running_bytes / 1024.0)  # KiB
 
-                if not hasattr(ax_ecn, "twin_bytes"):
-                    ax_ecn.twin_bytes = ax_ecn.twinx()
-                    ax_ecn.twin_bytes.set_ylabel(
+                if not hasattr(ax_alpha, "twin_bytes"):
+                    ax_alpha.twin_bytes = ax_alpha.twinx()
+                    ax_alpha.twin_bytes.set_ylabel(
                         "Cumulative Recv [KiB]", color="#666666", fontsize=11,
                         fontweight="bold")
-                    ax_ecn.twin_bytes.tick_params(
+                    ax_alpha.twin_bytes.tick_params(
                         colors="#444444", labelsize=10)
-                    ax_ecn.twin_bytes.grid(False)
+                    ax_alpha.twin_bytes.grid(False)
 
                 cum_color = adjust_lightness(color, 1.2)
-                ax_ecn.twin_bytes.plot(
+                ax_alpha.twin_bytes.plot(
                     pkt_times, cum_bytes_list,
                     color=cum_color, linestyle="--", linewidth=1.2, alpha=0.5,
                     label=f"{label} (cum. KiB)"
                 )
-                ax_ecn.twin_bytes.set_ylim(bottom=0)
+                ax_alpha.twin_bytes.set_ylim(bottom=0)
 
                 # Text note drawn right next to the first appearance of alpha
                 if cum_bytes >= 1024 * 1024:
@@ -307,12 +307,12 @@ def plot(
                     f"- {bytes_str}"
                 )
 
-                ax_ecn.scatter([t_alpha_1], [alpha_val],
-                               color=color, s=50, zorder=5)
-                ax_ecn.axvline(t_alpha_1, color=color,
-                               linestyle=":", alpha=0.6, linewidth=1.2)
+                ax_alpha.scatter([t_alpha_1], [alpha_val],
+                                 color=color, s=50, zorder=5)
+                ax_alpha.axvline(t_alpha_1, color=color,
+                                 linestyle=":", alpha=0.6, linewidth=1.2)
 
-                ax_ecn.annotate(
+                ax_alpha.annotate(
                     note_text,
                     xy=(t_alpha_1, alpha_val),
                     xytext=(25, -20 if idx % 2 == 0 else 10),
@@ -496,8 +496,8 @@ def plot(
     ax_queue.set_ylabel("Queue Length [byte]")
     ax_queue.set_ylim(bottom=0)
 
-    ax_ecn.set_ylabel("Prague Alpha")
-    ax_ecn.set_ylim(bottom=0)
+    ax_alpha.set_ylabel("Prague Alpha")
+    ax_alpha.set_ylim(bottom=0, top=1)
 
     ax_tput.set_ylabel("Throughput [Mbps]")
     ax_tput.set_ylim(bottom=0, top=bandwidth * 1.25)
