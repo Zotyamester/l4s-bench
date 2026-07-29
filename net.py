@@ -7,10 +7,11 @@ import math
 from collections.abc import Callable
 from argparse import ArgumentParser, BooleanOptionalAction
 from ipaddress import IPv4Interface, IPv4Network
+from enum import Enum
 
 from mininet.cli import CLI
 from mininet.link import TCLink
-from mininet.log import info, output, setLogLevel
+from mininet.log import info, error, output, setLogLevel
 from mininet.net import Mininet
 from mininet.node import Node
 from mininet.topo import Topo
@@ -26,6 +27,16 @@ class Endpoint(Node):
 
 
 class DualPI2Router(Node):
+    class FailureMode(Enum):
+        DROP_ECT0 = "DROP_ECT0"
+        DROP_ECT1 = "DROP_ECT1"
+        DROP_CE = "DROP_CE"
+        REWRITE_ECT0_TO_ECT1 = "REWRITE_ECT0_TO_ECT1"
+        REWRITE_ECT1_TO_ECT0 = "REWRITE_ECT1_TO_ECT0"
+
+        def __str__(self):
+            return self.value
+
     def config(
         self,
         btl_bw: int,
@@ -33,6 +44,7 @@ class DualPI2Router(Node):
         use_dualpi2: bool = True,
         queue_length_factor: float = 1.0,
         manual_override: str = "",
+        failure_mode: FailureMode | None = None,
         **kwargs,
     ):
         super().config(**kwargs)
@@ -41,7 +53,8 @@ class DualPI2Router(Node):
 
         intf = "eth2"
 
-        self.cmd(f"ethtool -K {intf} tso off gso off gro off lro off tx-udp-segmentation off")
+        self.cmd(
+            f"ethtool -K {intf} tso off gso off gro off lro off tx-udp-segmentation off")
         self.cmd(f"tc qdisc replace dev {intf} root handle 1: htb default 10")
         self.cmd(
             f"tc class add dev {intf} parent 1: classid 1:10 htb"
@@ -63,8 +76,16 @@ class DualPI2Router(Node):
                 + (
                     f" {manual_override}"
                     if manual_override != ""
-                    else (f" memlimit {queue_length_in_B}"
-                          f" typical_rtt {rtt}ms")
+                    else (
+                        f" memlimit {queue_length_in_B}"
+                        f" typical_rtt {rtt}ms"
+                        # f" max_rtt {2 * rtt}ms"
+                        # f" overflow"
+                        # f" target {5}ms"
+                        # f" step_thresh {1}ms"
+                        # f" min_qlen_step {1}"
+                        # f" coupling_factor {1}"
+                    )
                 )
             )
         else:
@@ -72,6 +93,30 @@ class DualPI2Router(Node):
                      f"   limit {queue_length_in_B}")
 
         self.cmd("sysctl -w net.ipv4.ip_forward=1")
+
+        match failure_mode:
+            case DualPI2Router.FailureMode.DROP_ECT0:
+                # Drop ECT(0)
+                self.cmd(
+                    f"iptables -t mangle -I POSTROUTING -o {intf} -m ecn --ecn-ip-ect 2 -j DROP")
+            case DualPI2Router.FailureMode.DROP_ECT1:
+                # Drop ECT(1)
+                self.cmd(
+                    f"iptables -t mangle -I POSTROUTING -o {intf} -m ecn --ecn-ip-ect 1 -j DROP")
+            case DualPI2Router.FailureMode.DROP_CE:
+                # Drop CE
+                self.cmd(
+                    f"iptables -t mangle -I POSTROUTING -o {intf} -m ecn --ecn-ip-ect 3 -j DROP")
+            case DualPI2Router.FailureMode.REWRITE_ECT0_TO_ECT1:
+                # ECT(0) -> ECT(1)
+                self.cmd(
+                    "iptables -t mangle -I POSTROUTING -o {intf} -m ecn --ecn-ip-ect 2 -j TOS --or-tos 1")
+            case DualPI2Router.FailureMode.REWRITE_ECT1_TO_ECT0:
+                # ECT(1) -> ECT(0)
+                self.cmd(
+                    "iptables -t mangle -I POSTROUTING -o {intf} -m ecn --ecn-ip-ect 1 -j TOS --or-tos 2")
+            case _:
+                pass  # no failure mode is set
 
 
 class L4STopo(Topo):
@@ -152,7 +197,8 @@ def iperf(
     _server_output = h2.cmd("iperf3 --server --daemon")
     _router_output = r0.cmd(
         f'> "{out_dir}/queues.jsonl" && '
-        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
+        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{
+            out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
     )
     client_output = h1.cmd(
         (
@@ -161,7 +207,8 @@ def iperf(
             else ""
         )
         + (
-            f"( mount -t tracefs none /sys/kernel/tracing && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->sport == {1234}/ {{ printf(\"%llu %u %u %u\\n\", nsecs, args->snd_cwnd, args->snd_nxt - args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & ); "
+            f"( mount -t tracefs none /sys/kernel/tracing && bpftrace -qe 'tracepoint:tcp:tcp_probe /args->sport == {
+                1234}/ {{ printf(\"%llu %u %u %u\\n\", nsecs, args->snd_cwnd, args->snd_nxt - args->snd_una, args->srtt); }}' > {out_dir}/h1-bpf.txt & ); "
             if bpf
             else ""
         )
@@ -192,21 +239,24 @@ def quinn_perf(
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
         f"       --ecn l4s"
+        f"       --initial-rtt {24}"
         f"       --qlog '{out_dir}/h2.qlog'"
         f"       --listen {h2.IP()}:{4433} &"
     )
     _router_output = r0.cmd(
         f'> "{out_dir}/queues.jsonl" && '
-        f'( while true ; do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
+        f'( while true ; '
+        f'  do echo "{{\\\"time\\\": `date -u +%s%N`, \\\"queues\\\": `tc -s -j -d qdisc show dev eth2`}}" >> "{out_dir}/queues.jsonl" ; sleep 0.001 ; done ) &'
     )
     client_output = h1.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
         f"       --ecn l4s"
+        f"       --initial-rtt {24}"
         f"       --congestion {algorithm}"
         f"       --json -"
         f"       --qlog '{out_dir}/h1.qlog'"
-        f"       --upload-size {256}M"
+        f"       --upload-size {1}G"
         f"       --duration {duration}"
         f"       --interval {1}"
         f"       h2:{4433}"
@@ -227,6 +277,7 @@ def run(
     use_dualpi2: bool = True,
     queue_length_factor: float = 1.0,
     override_dualpi2: str = "",
+    failure_mode: DualPI2Router.FailureMode | None = None,
     benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
     measurement_duration: int = 60,
     **kwargs,
@@ -237,9 +288,12 @@ def run(
 
     :param algorithm: The congestion control algorithm to be used.
     :param btl_bw: The bandwidth of the bottleneck link.
-    :param delay: The delay to be set on the last-mile links (i.e., between the endpoints and their corresponding switches).
-    :param out_dir: The location where the results of the benchmark shall be placed.
-    :param benchmark: The benchmarking function to be exectued instead of entering to CLI mode.
+    :param delay: The delay to be set on the last-mile links (i.e., between the
+    endpoints and their corresponding switches).
+    :param out_dir: The location where the results of the benchmark shall be
+    placed.
+    :param benchmark: The benchmarking function to be exectued instead of
+    entering to CLI mode.
     """
 
     rtt = 2 * 2 * last_mile_delay  # 2 * (D_H1->S1 + D_S2->H2)
@@ -252,6 +306,7 @@ def run(
             use_dualpi2=use_dualpi2,
             queue_length_factor=queue_length_factor,
             manual_override=override_dualpi2,
+            failure_mode=failure_mode,
         ),
         last_mile_delay=last_mile_delay,
     )
@@ -316,12 +371,16 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", default="prague")
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
-    parser.add_argument("--dualpi2", action=BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--queue-length-factor", type=float, default=1.0)
     parser.add_argument("--override-dualpi2", type=str, default="")
+    parser.add_argument("--failure-mode", type=DualPI2Router.FailureMode,
+                        choices=list(DualPI2Router.FailureMode), default="")
     # Benchmark parameters
     parser.add_argument("--measurement-duration", type=int, default=15)
-    parser.add_argument("--packet-capture", action=BooleanOptionalAction, default=False)
+    parser.add_argument("--packet-capture",
+                        action=BooleanOptionalAction, default=False)
     parser.add_argument("--bpf", action=BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
@@ -342,6 +401,7 @@ if __name__ == "__main__":
         use_dualpi2=args.dualpi2,
         queue_length_factor=args.queue_length_factor,
         override_dualpi2=args.override_dualpi2,
+        failure_mode=args.failure_mode,
         benchmark=benchmark,
         measurement_duration=args.measurement_duration,
         bpf=args.bpf,
