@@ -18,27 +18,43 @@ def adjust_lightness(color, amount):
     """
     rgb = mcolors.to_rgb(color)
     h, l, s = colorsys.rgb_to_hls(*rgb)
-    l = max(0.0, min(1.0, l * amount))
-    return colorsys.hls_to_rgb(h, l, s)
+    l_adjusted = max(0.0, min(1.0, l * amount))
+    return colorsys.hls_to_rgb(h, l_adjusted, s)
 
 
-def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> list[float]:
+def get_dispersion_in_seconds(pkt1: dict, pkt2: dict) -> float:
+    # Convert ms to seconds
+    return (pkt2["recv_time"] - pkt1["recv_time"]) / 1e3
+
+
+def calculate_throughput_estimates(
+    packets: list[dict],
+    tau: float = 1.0
+) -> list[float]:
     """Calculate exponentially weighted moving average throughput in bps."""
     throughputs = []
 
     def instant_throughput(pkt1: dict, pkt2: dict) -> float | None:
-        """Calculate instantaneous throughput based on the difference in the reception of two adjacent packets."""
+        """Calculate instantaneous throughput based on the difference in the
+        reception of two adjacent packets."""
 
         pkt2_size = pkt2["packet_length"] * 8  # in bits
 
-        dispersion = (pkt2["recv_time"] - pkt1["recv_time"]) / 1e3  # Convert ms to seconds
+        dispersion = get_dispersion_in_seconds(pkt1, pkt2)
 
         if dispersion < 1e-9:
-            return None  # Refuse to calculate throughput when it's completely unrealistic (i.e., dispresion < 1 ns)
+            # Refuse to calculate throughput when it's unrealistic (< 1 ns)
+            return None
         throughput = pkt2_size / dispersion
         return throughput
 
-    packets = sorted(filter(lambda pkt: pkt["packet_type"] == "1RTT", packets), key=lambda pkt: pkt["recv_time"])
+    packets = sorted(
+        filter(
+            lambda pkt: pkt["packet_type"] == "1RTT",
+            packets
+        ),
+        key=lambda pkt: pkt["recv_time"]
+    )
     adjacent_packets = zip(packets, packets[1:])
 
     # Handle the initial value separately
@@ -51,7 +67,10 @@ def calculate_throughput_estimates(packets: list[dict], tau: float = 1.0) -> lis
         throughput = instant_throughput(pkt1, pkt2)
         if throughput is not None:
             # alpha_i = 1 - e^{-dt_i/tau}
-            alpha = 1 - math.exp(-(pkt2["recv_time"] - pkt1["recv_time"] + sys.float_info.epsilon) / tau)  # Dynamic alpha based on time difference
+            # Dynamic alpha based on time difference
+            alpha = 1 - \
+                math.exp(-(pkt2["recv_time"] - pkt1["recv_time"] +
+                         sys.float_info.epsilon) / tau)
             throughput_average += (throughput - throughput_average) * alpha
             throughputs.append(throughput_average)
         else:
@@ -113,15 +132,19 @@ def plot(
 
         # Received Packet Length
         if packets := data.get("packets"):
-            time, pktlen = zip(*((obj["recv_time"], obj["packet_length"]) for obj in packets))
-            ax_rcvlen.scatter(time, pktlen, label=label, color=color, alpha=0.9, s=0.15)
-            ax_rcvlen.vlines(time, 0, 600, label=label, color=color, alpha=0.6, linewidth=0.075)
+            time, pktlen = zip(
+                *((obj["recv_time"], obj["packet_length"]) for obj in packets))
+            ax_rcvlen.scatter(time, pktlen, label=label,
+                              color=color, alpha=0.9, s=0.15)
+            ax_rcvlen.vlines(time, 0, 600, label=label,
+                             color=color, alpha=0.6, linewidth=0.075)
 
         # Round-Trip Time
         if rtts := data.get("rtts"):
             time_rtt, rtt = zip(*((obj["time"], obj["rtt"]) for obj in rtts))
             rtt_values.extend(rtt)
-            ax_rtt.plot(time_rtt, rtt, label=label, color=color, alpha=0.85, linewidth=1.5)
+            ax_rtt.plot(time_rtt, rtt, label=label,
+                        color=color, alpha=0.85, linewidth=1.5)
 
         # Get distinct shades dynamically from the primary protocol color
         inflight_color = adjust_lightness(color, 1.3)  # 30% lighter
@@ -130,17 +153,34 @@ def plot(
         # Congestion Window Size
         if (cwnds := data.get("cwnds")):
             time, cwnd = zip(*((obj["time"], obj["cwnd"]) for obj in cwnds))
-            ax_cwnd.plot(time, cwnd, label=label, color=color, alpha=0.9, linewidth=2.0)
+            ax_cwnd.plot(time, cwnd, label=label, color=color,
+                         alpha=0.9, linewidth=2.0)
 
         # In-flight Bytes
         if inflights := data.get("inflight"):
-            time, inflight = zip(*((obj["time"], obj["inflight"]) for obj in inflights))
-            ax_cwnd.plot(time, inflight, label=label, color=inflight_color, alpha=0.7, linewidth=1.2, linestyle="--")
+            time, inflight = zip(
+                *((obj["time"], obj["inflight"]) for obj in inflights))
+            ax_cwnd.plot(time, inflight, label=label, color=inflight_color,
+                         alpha=0.7, linewidth=1.2, linestyle="--")
 
         # Slow Start Thresholds
         if ssthreshs := data.get("ssthreshs"):
-            time, ssthresh = zip(*((obj["time"], (obj["ssthresh"] if obj["ssthresh"] < 2**64-1 else float("nan"))) for obj in ssthreshs))  # Replace ULONG_MAX with NaN to avoid plotting
-            ax_cwnd.step(time, ssthresh, where="post", label=label, color=ssthresh_color, alpha=0.85, linewidth=1.5, linestyle="-.")
+            # Replace ULONG_MAX with NaN to avoid plotting
+            time, ssthresh = zip(*(
+                (
+                    obj["time"],
+                    (
+                        obj["ssthresh"]
+                        if obj["ssthresh"] < 2**64-1
+                        else
+                        float("nan")
+                    )
+                )
+                for obj in ssthreshs
+            ))
+            ax_cwnd.step(time, ssthresh, where="post", label=label,
+                         color=ssthresh_color, alpha=0.85, linewidth=1.5,
+                         linestyle="-.")
 
         # Losses marked on the CWND axis
         if losses := data.get("losses"):
@@ -169,10 +209,10 @@ def plot(
             )
 
             # Volume labels next to each marker
-            for t_val, c_val, vol_val in zip(loss_times, loss_cwnds, loss_vols):
+            for time, cwnd, volume in zip(loss_times, loss_cwnds, loss_vols):
                 ax_cwnd.annotate(
-                    f"{vol_val} B",
-                    xy=(t_val, c_val),
+                    f"{volume} B",
+                    xy=(time, cwnd),
                     xytext=(6, 3),
                     textcoords="offset points",
                     fontsize=8.5,
@@ -184,10 +224,16 @@ def plot(
 
         # ECN Congestion Experienced
         if ecns := data.get("ecns"):
-            ecn_times, ect0, ce = zip(*((obj["time"], obj["ect0"], obj["ce"]) for obj in ecns))
+            ecn_times, ect0, ce = zip(
+                *((obj["time"], obj["ect0"], obj["ce"]) for obj in ecns))
             if any(ect0):
-                ecn_cwnds = [get_cwnd_at_time(data["cwnds"], time) for time, ce in zip(ecn_times, ce) if ce > 0]
-                ax_cwnd.scatter(ecn_times, ecn_cwnds, label=label, color=color, s=12, alpha=0.7)
+                ecn_cwnds = [
+                    get_cwnd_at_time(data["cwnds"], time)
+                    for time, ce in zip(ecn_times, ce)
+                    if ce > 0
+                ]
+                ax_cwnd.scatter(ecn_times, ecn_cwnds, label=label,
+                                color=color, s=12, alpha=0.7)
 
                 # Marking ECN events on the cwnd line
                 ax_cwnd.scatter(
@@ -204,15 +250,18 @@ def plot(
         # L4S Alpha Values
         if l4s := data.get("l4s"):
             time, alphas = zip(*((obj["time"], obj["alpha"]) for obj in l4s))
-            ax_ecn.plot(time, alphas, label=label, color=color, alpha=0.85, linewidth=1.5)
+            ax_ecn.plot(time, alphas, label=label,
+                        color=color, alpha=0.85, linewidth=1.5)
 
             # Find when alpha got to 1.0 (or first alpha == 1.0)
-            target_l4s = next((obj for obj in l4s if obj["alpha"] >= 1.0 - 1e-6), l4s[0])
+            target_l4s = next(
+                (obj for obj in l4s if obj["alpha"] >= 1.0 - 1e-6), l4s[0])
             t_alpha_1 = target_l4s["time"]
             alpha_val = target_l4s["alpha"]
 
             if packets := data.get("packets"):
-                recv_until = [p for p in packets if p["recv_time"] <= t_alpha_1]
+                recv_until = [
+                    p for p in packets if p["recv_time"] <= t_alpha_1]
                 cum_pkts = len(recv_until)
                 cum_bytes = sum(p["packet_length"] for p in recv_until)
 
@@ -227,8 +276,11 @@ def plot(
 
                 if not hasattr(ax_ecn, "twin_bytes"):
                     ax_ecn.twin_bytes = ax_ecn.twinx()
-                    ax_ecn.twin_bytes.set_ylabel("Cumulative Recv [KiB]", color="#666666", fontsize=11, fontweight="bold")
-                    ax_ecn.twin_bytes.tick_params(colors="#444444", labelsize=10)
+                    ax_ecn.twin_bytes.set_ylabel(
+                        "Cumulative Recv [KiB]", color="#666666", fontsize=11,
+                        fontweight="bold")
+                    ax_ecn.twin_bytes.tick_params(
+                        colors="#444444", labelsize=10)
                     ax_ecn.twin_bytes.grid(False)
 
                 cum_color = adjust_lightness(color, 1.2)
@@ -239,9 +291,10 @@ def plot(
                 )
                 ax_ecn.twin_bytes.set_ylim(bottom=0)
 
-                # Text note drawn right next to the initialization of alpha (first value)
+                # Text note drawn right next to the first appearance of alpha
                 if cum_bytes >= 1024 * 1024:
-                    bytes_str = f"{cum_bytes / (1024 * 1024):.2f} MiB ({cum_bytes:,} B)"
+                    bytes_str = f"{cum_bytes /
+                                   (1024 * 1024):.2f} MiB ({cum_bytes:,} B)"
                 elif cum_bytes >= 1024:
                     bytes_str = f"{cum_bytes / 1024:.1f} KiB ({cum_bytes:,} B)"
                 else:
@@ -254,8 +307,10 @@ def plot(
                     f"- {bytes_str}"
                 )
 
-                ax_ecn.scatter([t_alpha_1], [alpha_val], color=color, s=50, zorder=5)
-                ax_ecn.axvline(t_alpha_1, color=color, linestyle=":", alpha=0.6, linewidth=1.2)
+                ax_ecn.scatter([t_alpha_1], [alpha_val],
+                               color=color, s=50, zorder=5)
+                ax_ecn.axvline(t_alpha_1, color=color,
+                               linestyle=":", alpha=0.6, linewidth=1.2)
 
                 ax_ecn.annotate(
                     note_text,
@@ -265,8 +320,11 @@ def plot(
                     fontsize=8.5,
                     fontweight="bold",
                     color="#222222",
-                    bbox=dict(boxstyle="round,pad=0.35", fc="#ffffff", ec=color, alpha=0.9, lw=1.2),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.15", color=color, lw=1.2),
+                    bbox=dict(boxstyle="round,pad=0.35", fc="#ffffff",
+                              ec=color, alpha=0.9, lw=1.2),
+                    arrowprops=dict(
+                        arrowstyle="->", connectionstyle="arc3,rad=0.15",
+                        color=color, lw=1.2),
                     zorder=6
                 )
 
@@ -275,9 +333,16 @@ def plot(
                     for obj in data["packets"] if obj["packet_type"] == "1RTT"]
         if pkt_data:
             time_pkt, packets = zip(*pkt_data)
-            throughputs = calculate_throughput_estimates(packets, tau=round_trip_time * 4.0)  # Using 4 RTT as tau for smoothing
+
+            # Using 4 RTT as tau for smoothing
+            throughputs = calculate_throughput_estimates(
+                packets,
+                tau=round_trip_time * 4.0
+            )
+
             throughputs_mbps = [t / 1e6 for t in throughputs]
-            ax_tput.plot(time_pkt, throughputs_mbps, label=label, color=color, alpha=0.85, linewidth=1.5)
+            ax_tput.plot(time_pkt, throughputs_mbps, label=label,
+                         color=color, alpha=0.85, linewidth=1.5)
 
     # Calculate RTT limits
     if rtt_values:
@@ -297,7 +362,8 @@ def plot(
             color = get_label_color(label, idx)
 
             time, qlen = zip(*((obj["time"], obj["backlog"]) for obj in data))
-            ax_queue.plot(time, qlen, label=label, color=color, alpha=0.8, linewidth=1.5)
+            ax_queue.plot(time, qlen, label=label, color=color,
+                          alpha=0.8, linewidth=1.5)
 
     # Line denoting the queue length limit
     bw_in_Bps = bandwidth * 1e6 / 8  # Mbps to Bps conversion
@@ -314,18 +380,21 @@ def plot(
     )
 
     # Text label above the queue length limit line
-    trans_queue = transforms.blended_transform_factory(ax_queue.transAxes, ax_queue.transData)
+    trans_queue = transforms.blended_transform_factory(
+        ax_queue.transAxes, ax_queue.transData)
     ax_queue.text(
         0.02,
         queue_length_limit,
-        f"Queue Length Limit ({queue_length_factor} x BDP = {queue_length_limit} B)",
+        f"Queue Length Limit ({queue_length_factor} x BDP = {
+            queue_length_limit} B)",
         transform=trans_queue,
         va="bottom",
         ha="left",
         fontsize=9,
         color="#555555",
         weight=700,
-        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff",
+                  ec="none", alpha=0.75, zorder=4)
     )
 
     ax_cwnd.axhline(
@@ -336,7 +405,8 @@ def plot(
     )
 
     # Text label above the CWND line
-    trans_bdp = transforms.blended_transform_factory(ax_cwnd.transAxes, ax_cwnd.transData)
+    trans_bdp = transforms.blended_transform_factory(
+        ax_cwnd.transAxes, ax_cwnd.transData)
     ax_cwnd.text(
         0.02,
         bdp_truncated,
@@ -347,7 +417,8 @@ def plot(
         fontsize=9,
         color="#555555",
         weight=700,
-        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff",
+                  ec="none", alpha=0.75, zorder=4)
     )
 
     # Line denoting the link capacity limit on throughput axis once
@@ -359,7 +430,8 @@ def plot(
     )
 
     # Text label above the link capacity line
-    trans_tput = transforms.blended_transform_factory(ax_tput.transAxes, ax_tput.transData)
+    trans_tput = transforms.blended_transform_factory(
+        ax_tput.transAxes, ax_tput.transData)
     ax_tput.text(
         0.02,
         bandwidth,
@@ -370,7 +442,8 @@ def plot(
         fontsize=9,
         color="#555555",
         weight=700,
-        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff",
+                  ec="none", alpha=0.75, zorder=4)
     )
 
     # Line denoting the base round-trip time on round-trip-time axis once
@@ -382,7 +455,8 @@ def plot(
     )
 
     # Text label above the round-trip time line
-    trans_rtt = transforms.blended_transform_factory(ax_rtt.transAxes, ax_rtt.transData)
+    trans_rtt = transforms.blended_transform_factory(
+        ax_rtt.transAxes, ax_rtt.transData)
     ax_rtt.text(
         0.02,
         round_trip_time,
@@ -393,7 +467,8 @@ def plot(
         fontsize=9,
         color="#555555",
         weight=700,
-        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff", ec="none", alpha=0.75, zorder=4)
+        bbox=dict(boxstyle="round,pad=0.1", fc="#ffffff",
+                  ec="none", alpha=0.75, zorder=4)
     )
 
     # Apply uniform formatting to all subplots
@@ -511,6 +586,7 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         parser.error(
-            "--qlog, --bandwidth, --round-trip-time, and --queue-length-factor must be given"
+            "--qlog, --bandwidth, --round-trip-time, and --queue-length-factor"
+            " must be given"
         )
         sys.exit(1)

@@ -375,8 +375,10 @@ if __name__ == "__main__":
         "--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--queue-length-factor", type=float, default=1.0)
     parser.add_argument("--override-dualpi2", type=str, default="")
-    parser.add_argument("--failure-mode", type=DualPI2Router.FailureMode,
-                        choices=list(DualPI2Router.FailureMode), default="")
+    parser.add_argument("--failure-mode",
+                        nargs="?",
+                        type=DualPI2Router.FailureMode,
+                        choices=list(DualPI2Router.FailureMode), default=None)
     # Benchmark parameters
     parser.add_argument("--measurement-duration", type=int, default=15)
     parser.add_argument("--packet-capture",
