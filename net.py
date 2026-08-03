@@ -171,17 +171,15 @@ class L4STopo(Topo):
                 params2={"ip": r0_i_ip.with_prefixlen},
             )
 
-            # TODO: here, we could make use of the `n_host` param, but it would
-            #       require a change in the naming scheme
-            hi = self.addHost(
-                f"h{i}",
-                cls=Endpoint,
-                ip=hi_ip.with_prefixlen,
-                defaultRoute=f"via {r0_i_ip.ip}",
-                **self.endpoint_params,
-            )
-
-            self.addLink(hi, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
+            for j in range(1, self.n_host + 1):
+                hij = self.addHost(
+                    f"h{i}_{j}",
+                    cls=Endpoint,
+                    ip=hi_ip.with_prefixlen,
+                    defaultRoute=f"via {r0_i_ip.ip}",
+                    **self.endpoint_params,
+                )
+                self.addLink(hij, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
 def iperf(
@@ -192,7 +190,7 @@ def iperf(
     packet_capture: bool = False,
     bpf: bool = False,
 ) -> dict:
-    h1, h2, r0 = net["h1"], net["h2"], net["r0"]
+    h1, h2, r0 = net["h1_1"], net["h2_1"], net["r0"]
 
     _server_output = h2.cmd("iperf3 --server --daemon")
     _router_output = r0.cmd(
@@ -202,7 +200,7 @@ def iperf(
     )
     client_output = h1.cmd(
         (
-            f"( tcpdump -i h1-eth0 -w {out_dir}/h1.pcap &>/dev/null & ); "
+            f"( tcpdump -i h1_1-eth0 -w {out_dir}/h1.pcap &>/dev/null & ); "
             if packet_capture
             else ""
         )
@@ -234,7 +232,7 @@ def quinn_perf(
     out_dir: str,
     **kwargs,
 ) -> dict:
-    h1, h2, r0 = net["h1"], net["h2"], net["r0"]
+    h1, h2, r0 = net["h1_1"], net["h2_1"], net["r0"]
 
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
