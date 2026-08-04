@@ -182,9 +182,20 @@ class L4STopo(Topo):
                 self.addLink(hij, si, cls=TCLink, delay=f"{self.last_mile_delay}ms")
 
 
+class CongestionControl(Enum):
+    RENO = "reno"
+    NEW_RENO = "new-reno"
+    CUBIC = "cubic"
+    BBR = "bbr"
+    PRAGUE = "prague"
+
+    def __str__(self):
+        return self.value
+
+
 def iperf(
     net: Mininet,
-    algorithm: str,
+    algorithm: CongestionControl,
     duration: int,
     out_dir: str,
     packet_capture: bool = False,
@@ -227,7 +238,7 @@ def iperf(
 
 def quinn_perf(
     net: Mininet,
-    algorithm: str,
+    algorithm: CongestionControl,
     duration: int,
     out_dir: str,
     **kwargs,
@@ -366,15 +377,16 @@ if __name__ == "__main__":
         help="Dir to put results into / get logs from",
     )
     # Testbed, network & endpoint parameters
-    parser.add_argument("--algorithm", default="prague")
+    parser.add_argument("--algorithm", type=CongestionControl,
+                        choices=list(CongestionControl),
+                        default=CongestionControl.CUBIC)
     parser.add_argument("--bottleneck-bandwidth", type=int, default=10)
     parser.add_argument("--last-mile-delay", type=int, default=5)
     parser.add_argument(
         "--dualpi2", action=BooleanOptionalAction, default=True)
     parser.add_argument("--queue-length-factor", type=float, default=1.0)
     parser.add_argument("--override-dualpi2", type=str, default="")
-    parser.add_argument("--failure-mode",
-                        nargs="?",
+    parser.add_argument("--failure-mode", nargs="?",
                         type=DualPI2Router.FailureMode,
                         choices=list(DualPI2Router.FailureMode), default=None)
     # Benchmark parameters
@@ -404,6 +416,6 @@ if __name__ == "__main__":
         failure_mode=args.failure_mode,
         benchmark=benchmark,
         measurement_duration=args.measurement_duration,
-        bpf=args.bpf,
         packet_capture=args.packet_capture,
+        bpf=args.bpf,
     )
