@@ -248,7 +248,6 @@ def quinn_perf(
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
         f"       --ecn l4s"
-        f"       --initial-rtt {24}"
         f"       --qlog '{out_dir}/h2.qlog'"
         f"       --listen {h2.IP()}:{4433} &"
     )
@@ -261,7 +260,6 @@ def quinn_perf(
         "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
         f"       --ip {h2.IP()}"
         f"       --ecn l4s"
-        f"       --initial-rtt {24}"
         f"       --congestion {algorithm}"
         f"       --json -"
         f"       --qlog '{out_dir}/h1.qlog'"
