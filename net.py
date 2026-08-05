@@ -160,7 +160,7 @@ class L4STopo(Topo):
             **self.router_params,
         )  # specify the first subnet's first IP address in the `ip` param
 
-        for i, (r0_i_ip, hi_ip, *_) in enumerate(nets, start=1):
+        for i, (r0_i_ip, *hi_ips) in enumerate(nets, start=1):
             si = self.addSwitch(f"s{i}")
 
             self.addLink(
@@ -171,11 +171,11 @@ class L4STopo(Topo):
                 params2={"ip": r0_i_ip.with_prefixlen},
             )
 
-            for j in range(1, self.n_host + 1):
+            for j, hij_ip in enumerate(hi_ips[:self.n_host], start=1):
                 hij = self.addHost(
                     f"h{i}_{j}",
                     cls=Endpoint,
-                    ip=hi_ip.with_prefixlen,
+                    ip=hij_ip.with_prefixlen,
                     defaultRoute=f"via {r0_i_ip.ip}",
                     **self.endpoint_params,
                 )
@@ -200,8 +200,23 @@ def iperf(
     out_dir: str,
     packet_capture: bool = False,
     bpf: bool = False,
+    background_traffic: bool = False,
 ) -> dict:
     h1, h2, r0 = net["h1_1"], net["h2_1"], net["r0"]
+
+    if background_traffic:
+        bg_h1, bg_h2 = net["h1_2"], net["h2_2"]
+
+        _background_server_output = bg_h2.cmd("iperf3 --server --daemon")
+
+        # Let the background client run for a slightly longer duration so that
+        # it remains active for the whole measurement period.
+        _background_client_output = bg_h1.cmd(
+            f"iperf3 --client {bg_h2.IP()}"
+            f"       --congestion {CongestionControl.RENO}"
+            f"       --time {duration + 1}"
+            f"       --interval {1} &"
+        )
 
     _server_output = h2.cmd("iperf3 --server --daemon")
     _router_output = r0.cmd(
@@ -232,7 +247,7 @@ def iperf(
     try:
         return json.loads(client_output)
     except json.JSONDecodeError as e:
-        error(f"Couldn't decode iperf3 output: {e}")
+        error(f"Couldn't decode iperf3 output: {e}\n")
         return {}
 
 
@@ -241,9 +256,32 @@ def quinn_perf(
     algorithm: CongestionControl,
     duration: int,
     out_dir: str,
+    background_traffic: bool = False,
     **kwargs,
 ) -> dict:
     h1, h2, r0 = net["h1_1"], net["h2_1"], net["r0"]
+
+    if background_traffic:
+        bg_h1, bg_h2 = net["h1_2"], net["h2_2"]
+
+        _background_server_output = bg_h2.cmd(
+            "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
+            f"       --ecn l4s"
+            f"       --listen {bg_h2.IP()}:{4433} &"
+        )
+
+        # Let the background client run for a slightly longer duration so that
+        # it remains active for the whole measurement period.
+        _background_client_output = bg_h1.cmd(
+            "/home/vagrant/quinn/target/debug/quinn-perf client --no-protection"
+            f"       --ip {bg_h2.IP()}"
+            f"       --ecn l4s"
+            f"       --congestion {CongestionControl.NEW_RENO}"
+            f"       --upload-size {1}G"
+            f"       --duration {duration + 1}"
+            f"       --interval {1}"
+            f"       h2_2:{4433} &"
+        )
 
     _server_output = h2.cmd(
         "/home/vagrant/quinn/target/debug/quinn-perf server --no-protection"
@@ -272,7 +310,7 @@ def quinn_perf(
     try:
         return json.loads(client_output.splitlines()[-1])
     except json.JSONDecodeError as e:
-        error(f"Couldn't decode quinn-perf output: {e}")
+        error(f"Couldn't decode quinn-perf output: {e}\n")
         return {}
 
 
@@ -287,6 +325,7 @@ def run(
     failure_mode: DualPI2Router.FailureMode | None = None,
     benchmark: Callable[[Mininet, ...], dict] | None = None,  # type: ignore
     measurement_duration: int = 60,
+    background_traffic: bool = False,
     **kwargs,
 ):
     """
@@ -305,7 +344,12 @@ def run(
 
     rtt = 2 * 2 * last_mile_delay  # 2 * (D_H1->S1 + D_S2->H2)
 
+    # If background traffic is on, spawn another pair of hosts (one in each
+    # subnet).
+    n_host = 2 if background_traffic else 1
+
     topo = L4STopo(
+        n_host=n_host,
         endpoint_params=dict(),
         router_params=dict(
             btl_bw=btl_bw,
@@ -325,7 +369,8 @@ def run(
             info("*** Starting benchmark\n")
 
             client_result = benchmark(
-                net, algorithm, measurement_duration, out_dir, **kwargs
+                net, algorithm, measurement_duration, out_dir,
+                background_traffic=background_traffic, **kwargs
             )
 
             r0 = net["r0"]
@@ -392,6 +437,8 @@ if __name__ == "__main__":
     parser.add_argument("--packet-capture",
                         action=BooleanOptionalAction, default=False)
     parser.add_argument("--bpf", action=BooleanOptionalAction, default=True)
+    parser.add_argument("--background-traffic", action=BooleanOptionalAction,
+                        default=False)
 
     args = parser.parse_args()
 
@@ -416,4 +463,5 @@ if __name__ == "__main__":
         measurement_duration=args.measurement_duration,
         packet_capture=args.packet_capture,
         bpf=args.bpf,
+        background_traffic=args.background_traffic,
     )
